@@ -22,6 +22,11 @@ class HookPromptSubmitResponse(BaseModel):
     proceed: bool = True
     enriched_prompt: str | None = None
     questions: list[str] = Field(default_factory=list)
+    suggested_context: str | None = None
+    similar_sessions: list[dict[str, Any]] = Field(default_factory=list)
+    applicable_policies: list[dict[str, Any]] = Field(default_factory=list)
+    predicted_plan: str | None = None
+    confidence: float = 0.0
 
 class ToolDecision(str, Enum):
     allow = "allow"

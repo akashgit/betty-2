@@ -5,4 +5,4 @@
 <td>{{ p.count }}</td>
 <td><input type="checkbox" role="switch" {% if p.auto_approve %}checked{% endif %} hx-put="/api/approvals/{{ p.id }}/toggle" hx-target="#approvals-list" hx-swap="innerHTML"></td></tr>
 {% endfor %}</tbody></table>
-{% else %}<p>No approval patterns learned yet. Betty will learn your tool approval preferences as you use Claude Code.</p>{% endif %}
+{% else %}<div class="empty-state"><p>No approval patterns learned yet. Betty will learn your tool approval preferences as you use Claude Code.</p></div>{% endif %}

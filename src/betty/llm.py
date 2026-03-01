@@ -1,11 +1,15 @@
 """Unified LLM service for Betty.
 
-Centralizes all LLM calls through litellm. Supports all providers
-that litellm handles (OpenAI, Anthropic, Ollama, OpenRouter, etc.).
+Three-way routing based on model string:
+- "claude-code/*" → subprocess call to `claude` CLI (no API key needed)
+- api_base set    → OpenAI SDK direct (local/custom servers)
+- otherwise       → litellm (cloud providers with auto-routing)
 """
 
+import asyncio
 import json
 import logging
+import subprocess
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -46,11 +50,18 @@ class LLMResponse:
 
 
 class LLMService:
-    """Async LLM service backed by litellm.
+    """Async LLM service with three-way routing.
 
     Usage:
-        config = LLMConfig(model="anthropic/claude-sonnet-4-20250514")
-        llm = LLMService(config)
+        # Default: uses claude CLI subprocess (no API key needed)
+        llm = LLMService(LLMConfig(model="claude-code/haiku"))
+
+        # Cloud provider via litellm
+        llm = LLMService(LLMConfig(model="anthropic/claude-sonnet-4-20250514"))
+
+        # Local server via OpenAI SDK
+        llm = LLMService(LLMConfig(model="qwen2.5:7b", api_base="http://localhost:1234/v1"))
+
         response = await llm.complete("What is 2+2?")
     """
 
@@ -67,6 +78,44 @@ class LLMService:
             kwargs["api_key"] = self.config.api_key
         return kwargs
 
+    def _call_claude_code(
+        self,
+        prompt: str,
+        system: str | None = None,
+        max_tokens: int = 4096,
+    ) -> str:
+        """Call claude CLI in single-prompt mode.
+
+        Prompt is piped via stdin to avoid OS ARG_MAX limits on long prompts.
+        """
+        claude_model = self.config.model.split("/", 1)[1] if "/" in self.config.model else "haiku"
+
+        cmd = [
+            "claude", "-p",
+            "--no-session-persistence",
+            "--model", claude_model,
+        ]
+        if system:
+            cmd.extend(["--system-prompt", system])
+
+        # Strip CLAUDECODE env var so claude CLI doesn't refuse to run
+        # inside an existing Claude Code session.
+        env = {k: v for k, v in __import__("os").environ.items() if k != "CLAUDECODE"}
+
+        result = subprocess.run(
+            cmd,
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=env,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                result.stderr.strip() or f"claude exited with code {result.returncode}"
+            )
+        return result.stdout.strip()
+
     async def complete(
         self,
         prompt: str,
@@ -76,20 +125,47 @@ class LLMService:
     ) -> str:
         """Generate a text completion.
 
-        Args:
-            prompt: The user message.
-            system: Optional system prompt.
-            temperature: Sampling temperature (0.0 = deterministic).
-            max_tokens: Maximum tokens in the response.
-
-        Returns:
-            The generated text content.
+        Routes: claude-code/* → subprocess, api_base → openai SDK, else → litellm.
         """
+        # Route 1: Claude Code subprocess
+        if self.config.is_claude_code:
+            loop = asyncio.get_event_loop()
+            content = await loop.run_in_executor(
+                None, self._call_claude_code, prompt, system, max_tokens,
+            )
+            self.usage.call_count += 1
+            return content
+
+        # Route 2 & 3: OpenAI SDK (local) or litellm (cloud)
         messages: list[dict[str, str]] = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
+        if self.config.api_base:
+            # Route 2: Local/custom OpenAI-compatible server
+            from openai import AsyncOpenAI
+
+            client = AsyncOpenAI(
+                base_url=self.config.api_base.rstrip("/"),
+                api_key=self.config.api_key or "no-key-required",
+            )
+            response = await client.chat.completions.create(
+                model=self.config.model,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            content = response.choices[0].message.content or ""
+            if hasattr(response, "usage") and response.usage:
+                self.usage.record({
+                    "prompt_tokens": response.usage.prompt_tokens or 0,
+                    "completion_tokens": response.usage.completion_tokens or 0,
+                    "total_tokens": response.usage.total_tokens or 0,
+                })
+            return content
+
+        # Route 3: Cloud provider via litellm
         kwargs = self._call_kwargs()
         kwargs["messages"] = messages
         kwargs["temperature"] = temperature
@@ -122,19 +198,6 @@ class LLMService:
         Instructs the model to return valid JSON. Parses the response
         and returns a dict. Falls back to extracting JSON from markdown
         code blocks if the raw response isn't valid JSON.
-
-        Args:
-            prompt: The user message.
-            system: Optional system prompt (JSON instruction is appended).
-            schema: Optional JSON schema hint included in the prompt.
-            temperature: Sampling temperature.
-            max_tokens: Maximum tokens in the response.
-
-        Returns:
-            Parsed JSON dict.
-
-        Raises:
-            ValueError: If the response cannot be parsed as JSON.
         """
         json_instruction = "Respond with valid JSON only. No markdown, no explanation."
         if schema:
@@ -171,15 +234,12 @@ class LLMService:
     async def embed(self, text: str) -> list[float]:
         """Generate an embedding vector for text.
 
-        Uses litellm's embedding API. The model should support embeddings
-        (e.g. "openai/text-embedding-3-small").
-
-        Args:
-            text: The text to embed.
-
-        Returns:
-            Embedding vector as a list of floats.
+        Note: embedding is not supported for claude-code subprocess.
+        Use a cloud embedding model instead.
         """
+        if self.config.is_claude_code:
+            raise NotImplementedError("Embedding not supported for claude-code subprocess")
+
         kwargs: dict[str, Any] = {"model": self.config.model}
         if self.config.api_base:
             kwargs["api_base"] = self.config.api_base

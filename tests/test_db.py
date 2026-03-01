@@ -33,7 +33,7 @@ class TestDatabaseSetup:
     async def test_schema_version(self, db):
         async with db.db.execute("SELECT MAX(version) FROM schema_version") as cursor:
             row = await cursor.fetchone()
-            assert row[0] == 1
+            assert row[0] == 3
 
     @pytest.mark.asyncio
     async def test_context_manager(self, tmp_path):
@@ -52,7 +52,7 @@ class TestDatabaseSetup:
         await db2.connect()
         async with db2.db.execute("SELECT MAX(version) FROM schema_version") as cursor:
             row = await cursor.fetchone()
-            assert row[0] == 1
+            assert row[0] == 3
         await db2.close()
 
 
@@ -79,7 +79,9 @@ class TestPreferences:
         await db.set_preference("editor", "theme", "light", confidence=0.95)
         pref = await db.get_preference("editor", "theme")
         assert pref["value"] == "light"
-        assert pref["confidence"] == 0.95
+        # Confidence grows incrementally on upsert, not replaced:
+        # 0.5 (default) + (1.0 - 0.5) * 0.15 = 0.575
+        assert pref["confidence"] == pytest.approx(0.575, abs=0.01)
 
     @pytest.mark.asyncio
     async def test_get_nonexistent(self, db):
@@ -94,6 +96,17 @@ class TestPreferences:
         pref_b = await db.get_preference("git", "branch", project_scope="/proj/b")
         assert pref_a["value"] == "main"
         assert pref_b["value"] == "develop"
+
+    @pytest.mark.asyncio
+    async def test_confidence_grows_with_evidence(self, db):
+        """Confidence must grow on repeated observations, not stay stuck."""
+        for _ in range(10):
+            await db.set_preference("style", "lang", "python", confidence=0.3)
+        pref = await db.get_preference("style", "lang")
+        assert pref["evidence_count"] == 10
+        # After 10 observations starting at 0.3, confidence should be ~0.84
+        assert pref["confidence"] > 0.8
+        assert pref["confidence"] <= 0.95
 
     @pytest.mark.asyncio
     async def test_get_by_category(self, db):

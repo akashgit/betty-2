@@ -1,0 +1,15 @@
+{% if preferences %}
+<table>
+  <thead><tr><th>Category</th><th>Preference</th><th>Value</th><th>Confidence</th></tr></thead>
+  <tbody>{% for pref in preferences %}
+  <tr>
+    <td><kbd>{{ pref.category }}</kbd></td>
+    <td>{{ pref.key }}</td>
+    <td><code>{{ pref.value }}</code></td>
+    <td><progress value="{{ (pref.confidence * 100)|int }}" max="100"></progress> {{ (pref.confidence * 100)|int }}%</td>
+  </tr>
+  {% endfor %}</tbody>
+</table>
+{% else %}
+<div class="empty-state"><p>No preferences learned yet. Betty will learn your preferences as you use Claude Code.</p></div>
+{% endif %}

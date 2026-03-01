@@ -30,9 +30,28 @@ async def hook_prompt_submit(
     req: HookPromptSubmitRequest,
     request: Request,
 ) -> HookPromptSubmitResponse:
-    """Handle UserPromptSubmit hook."""
+    """Handle UserPromptSubmit hook — analyze intent and surface questions."""
     logger.debug("UserPromptSubmit session=%s len=%d", req.session_id, len(req.prompt))
-    return HookPromptSubmitResponse(proceed=True)
+
+    intent_engine = getattr(request.app.state, "intent_engine", None)
+    if intent_engine is None:
+        return HookPromptSubmitResponse(proceed=True)
+
+    try:
+        analysis = await intent_engine.analyze(req.prompt, req.project_dir or None)
+
+        return HookPromptSubmitResponse(
+            proceed=True,
+            questions=[q.text for q in analysis.questions],
+            suggested_context=analysis.suggested_context or None,
+            similar_sessions=analysis.similar_sessions,
+            applicable_policies=analysis.applicable_policies,
+            predicted_plan=analysis.predicted_plan or None,
+            confidence=analysis.confidence,
+        )
+    except Exception:
+        logger.exception("UserPromptSubmit intent analysis failed")
+        return HookPromptSubmitResponse(proceed=True)
 
 
 @router.post("/PreToolUse", response_model=HookPreToolUseResponse)

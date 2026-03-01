@@ -18,7 +18,7 @@ from betty.config import (
 class TestLLMConfig:
     def test_defaults(self):
         cfg = LLMConfig()
-        assert cfg.model == "anthropic/claude-sonnet-4-20250514"
+        assert cfg.model == "claude-code/haiku"
         assert cfg.api_base is None
 
     def test_custom_values(self):

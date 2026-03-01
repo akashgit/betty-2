@@ -34,10 +34,13 @@ class ApprovalDecision(Enum):
     ASK = "ask"
 
 
-# Tools that are always safe (read-only)
+# Tools that are always safe (read-only or non-destructive)
 ALWAYS_SAFE_TOOLS = frozenset({
     "Read", "Grep", "Glob", "WebSearch", "WebFetch",
-    "TaskList", "TaskGet",
+    "TaskList", "TaskGet", "TaskCreate", "TaskUpdate",
+    "Agent", "AskUserQuestion", "EnterPlanMode", "ExitPlanMode",
+    "Skill", "SendMessage", "TeamCreate", "TeamDelete",
+    "EnterWorktree",
 })
 
 # Tools that can be learned
@@ -299,7 +302,11 @@ class ApprovalModel:
         if record is not None:
             if record.decision == "accepted":
                 confidence = min(1.0, 0.5 + record.count * 0.1)
-                if self.autonomy_level >= 2 and confidence >= self.confidence_threshold:
+                # Level 3 (full-auto): approve any previously accepted pattern.
+                # Level 2 (semi-auto): approve only if confidence meets threshold.
+                if self.autonomy_level >= 3 or (
+                    self.autonomy_level >= 2 and confidence >= self.confidence_threshold
+                ):
                     return ApprovalPrediction(
                         decision=ApprovalDecision.APPROVE,
                         confidence=confidence,

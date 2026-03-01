@@ -103,11 +103,17 @@ def stop_daemon() -> bool:
 
 
 async def _init_shared_state() -> dict:
-    """Initialize shared components: database, approval model, escalation router."""
+    """Initialize shared components: database, models, engines."""
     from betty.approval import ApprovalModel
+    from betty.claude_md import ClaudeMdMaintainer
     from betty.config import load_config
     from betty.db import UserModelDB
     from betty.escalation import EscalationRouter
+    from betty.intent_engine import IntentEngine
+    from betty.policy import PolicyEngine
+    from betty.session_analyzer import SessionAnalyzer
+    from betty.session_search import SessionSearcher
+    from betty.user_model import UserModel
 
     cfg = load_config()
 
@@ -138,11 +144,51 @@ async def _init_shared_state() -> dict:
     # Escalation router.
     escalation_router = EscalationRouter(timeout_secs=120.0)
 
+    # LLM service (optional — heuristic mode if unavailable).
+    llm = None
+    try:
+        from betty.llm import LLMService
+
+        llm = LLMService(cfg.llm)
+        logger.info("LLM service initialized (model=%s)", cfg.llm.model)
+    except Exception:
+        logger.info("LLM service unavailable, running in heuristic mode")
+
+    # User model.
+    user_model = UserModel(db)
+
+    # Session searcher.
+    searcher = SessionSearcher(db, llm)
+
+    # Policy engine.
+    policy_engine = PolicyEngine()
+
+    # Session analyzer.
+    session_analyzer = SessionAnalyzer(llm)
+
+    # Intent engine.
+    intent_engine = IntentEngine(
+        user_model=user_model,
+        searcher=searcher,
+        db=db,
+        llm=llm,
+    )
+
+    # CLAUDE.md maintainer.
+    claude_md_maintainer = ClaudeMdMaintainer()
+
     return {
         "db": db,
         "approval_model": approval_model,
         "escalation_router": escalation_router,
         "config": cfg,
+        "llm": llm,
+        "user_model": user_model,
+        "searcher": searcher,
+        "policy_engine": policy_engine,
+        "session_analyzer": session_analyzer,
+        "intent_engine": intent_engine,
+        "claude_md_maintainer": claude_md_maintainer,
     }
 
 
@@ -208,9 +254,73 @@ async def _run_telegram_bot(shared_state: dict) -> None:
         logger.exception("Telegram bot failed")
 
 
-async def _run_scheduler(shared_state: dict) -> None:
-    """Periodic background tasks: preference decay."""
+async def _run_session_watcher(shared_state: dict) -> None:
+    """Background task: discover and analyze completed sessions."""
+    from betty.session_reader import discover_sessions, parse_session
+
     db = shared_state.get("db")
+    session_analyzer = shared_state.get("session_analyzer")
+    if not db or not session_analyzer:
+        logger.info("Session watcher: missing db or analyzer, skipping")
+        return
+
+    # Seed analyzed IDs from existing session_summaries.
+    analyzed_ids: set[str] = set()
+    try:
+        async with db.db.execute("SELECT session_id FROM session_summaries") as cursor:
+            rows = await cursor.fetchall()
+            analyzed_ids = {row["session_id"] for row in rows}
+        logger.info("Session watcher: %d sessions already analyzed", len(analyzed_ids))
+    except Exception:
+        logger.exception("Session watcher: failed to seed analyzed IDs")
+
+    while True:
+        try:
+            await asyncio.sleep(60)
+
+            discovered = discover_sessions(limit=100)
+            new_count = 0
+
+            for session_id, path in discovered:
+                if session_id in analyzed_ids:
+                    continue
+
+                try:
+                    session = parse_session(path)
+
+                    # Skip sessions with < 3 turns (likely still active).
+                    if len(session.turns) < 3:
+                        continue
+
+                    # Analyze the session.
+                    llm = shared_state.get("llm")
+                    if llm is not None:
+                        analysis = await session_analyzer.analyze_with_llm(session)
+                    else:
+                        analysis = session_analyzer.analyze(session)
+
+                    # Persist results.
+                    started_at = session.started_at.isoformat() if session.started_at else None
+                    await session_analyzer.persist(analysis, db, started_at=started_at)
+                    analyzed_ids.add(session_id)
+                    new_count += 1
+                except Exception:
+                    logger.exception("Session watcher: failed to analyze %s", session_id)
+
+            if new_count:
+                logger.info("Session watcher: analyzed %d new sessions", new_count)
+
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            logger.exception("Session watcher: unexpected error")
+
+
+async def _run_scheduler(shared_state: dict) -> None:
+    """Periodic background tasks: preference decay, CLAUDE.md maintenance."""
+    db = shared_state.get("db")
+    user_model = shared_state.get("user_model")
+    claude_md_maintainer = shared_state.get("claude_md_maintainer")
     tick_count = 0
 
     while True:
@@ -220,16 +330,44 @@ async def _run_scheduler(shared_state: dict) -> None:
             logger.debug("Scheduler tick %d", tick_count)
 
             # Every hour (12 ticks): decay stale preferences.
-            if db and tick_count % 12 == 0:
+            if db and user_model and tick_count % 12 == 0:
                 try:
-                    from betty.user_model import UserModel
-
-                    user_model = UserModel(db)
                     updated = await user_model.decay_stale_preferences()
                     if updated:
                         logger.info("Decayed %d stale preferences", updated)
                 except Exception:
                     logger.exception("Preference decay failed")
+
+            # Every 6 hours (72 ticks): CLAUDE.md maintenance.
+            if db and user_model and claude_md_maintainer and tick_count % 72 == 0:
+                try:
+                    async with db.db.execute(
+                        "SELECT DISTINCT project_dir FROM session_summaries"
+                    ) as cursor:
+                        rows = await cursor.fetchall()
+                        project_dirs = [row["project_dir"] for row in rows if row["project_dir"]]
+
+                    for project_dir in project_dirs:
+                        try:
+                            suggestions = await claude_md_maintainer.suggest_updates(
+                                project_dir, user_model
+                            )
+                            auto_updates = [s for s in suggestions if s.should_auto_apply]
+                            if auto_updates:
+                                applied = claude_md_maintainer.apply_updates(
+                                    project_dir, auto_updates, auto=True
+                                )
+                                if applied:
+                                    logger.info(
+                                        "CLAUDE.md: applied %d updates to %s",
+                                        len(applied), project_dir,
+                                    )
+                        except Exception:
+                            logger.exception(
+                                "CLAUDE.md maintenance failed for %s", project_dir
+                            )
+                except Exception:
+                    logger.exception("CLAUDE.md maintenance failed")
 
         except asyncio.CancelledError:
             break
@@ -264,6 +402,7 @@ async def run_daemon(port: int = DEFAULT_PORT) -> None:
         asyncio.create_task(_run_server(port, shared_state), name="server"),
         asyncio.create_task(_run_telegram_bot(shared_state), name="telegram"),
         asyncio.create_task(_run_scheduler(shared_state), name="scheduler"),
+        asyncio.create_task(_run_session_watcher(shared_state), name="session_watcher"),
     ]
 
     try:

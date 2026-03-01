@@ -2,7 +2,7 @@
 {% block title %}Betty &mdash; Settings{% endblock %}
 {% block content %}
 <hgroup><h1>Settings</h1><p>Configure Betty's behavior</p></hgroup>
-<form hx-put="/api/config" hx-swap="none">
+<form hx-put="/api/config" hx-swap="none" hx-on::after-request="if(event.detail.successful){let s=document.getElementById('save-status');s.classList.add('show');setTimeout(()=>s.classList.remove('show'),2000)}">
   <fieldset><legend>LLM Configuration</legend>
     <label for="llm_model">Model<input type="text" id="llm_model" name="llm_model" value="{{ config.llm_model }}" placeholder="e.g., openai/gpt-4o-mini"></label>
     <label for="llm_api_base">API Base URL (optional)<input type="text" id="llm_api_base" name="llm_api_base" value="{{ config.llm_api_base or '' }}" placeholder="e.g., http://localhost:1234/v1"></label>
@@ -22,6 +22,6 @@
     <p>{% if config.telegram_configured %}Status: <mark>Connected</mark>{% else %}Status: Not configured. Set <code>BETTY_TELEGRAM_TOKEN</code> and <code>BETTY_TELEGRAM_CHAT_ID</code>.{% endif %}</p>
   </fieldset>
   <fieldset><legend>Server</legend><p>Port: <code>{{ config.port }}</code></p></fieldset>
-  <button type="submit">Save Settings</button>
+  <button type="submit">Save Settings</button><span id="save-status" class="save-status">Saved!</span>
 </form>
 {% endblock %}

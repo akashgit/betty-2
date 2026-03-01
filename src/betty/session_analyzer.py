@@ -573,6 +573,7 @@ class SessionAnalyzer:
         analysis: SessionAnalysis,
         db: Any,
         project_scope: str | None = None,
+        started_at: str | None = None,
     ) -> None:
         """Persist analysis results to the database.
 
@@ -585,14 +586,20 @@ class SessionAnalyzer:
             db: A UserModelDB instance.
             project_scope: Optional project scope for preferences.
                 Defaults to analysis.project_dir.
+            started_at: ISO timestamp for session start. Falls back to
+                current time if not provided.
         """
         scope = project_scope or analysis.project_dir or None
+
+        if not started_at:
+            from datetime import datetime, timezone
+            started_at = datetime.now(timezone.utc).isoformat()
 
         # Save session summary
         await db.save_session(
             session_id=analysis.session_id,
             project_dir=analysis.project_dir,
-            started_at="",  # Will be set from session if available
+            started_at=started_at,
             goal=analysis.goal,
             tools_used=analysis.tools_used,
             files_touched=analysis.files_touched,

@@ -5,9 +5,14 @@ When Claude Code fires a hook it runs::
     betty hook-handler <hook-type>
 
 This module reads the hook payload from stdin, forwards it to the
-Betty daemon via HTTP, and prints any response JSON that Claude Code
-should act on.  If the daemon is unreachable the handler exits
+Betty daemon via HTTP, and translates the response into the format
+Claude Code expects.  If the daemon is unreachable the handler exits
 silently so Claude Code is never blocked.
+
+Claude Code hook response formats:
+- UserPromptSubmit: {"additionalContext": "..."} or empty
+- PreToolUse: {"hookSpecificOutput": {"permissionDecision": "allow|deny|ask", ...}}
+- PostToolUse: empty (fire-and-forget)
 """
 
 from __future__ import annotations
@@ -20,7 +25,14 @@ from typing import Any
 
 # Default timeout for daemon communication.  Hooks are latency-
 # sensitive (Claude Code blocks on them), so keep this short.
+# UserPromptSubmit gets more time because the intent engine may call LLM.
 DAEMON_TIMEOUT_SECS = 2
+
+_HOOK_TIMEOUTS: dict[str, float] = {
+    "UserPromptSubmit": 5,
+    "PreToolUse": 2,
+    "PostToolUse": 2,
+}
 
 # Port where the Betty daemon listens.
 DAEMON_PORT = 7832
@@ -71,6 +83,82 @@ def _post_to_daemon(
     return None
 
 
+def _format_prompt_submit(response: dict[str, Any]) -> dict[str, Any] | None:
+    """Translate Betty's UserPromptSubmit response to Claude Code format.
+
+    Claude Code expects:
+    - {"additionalContext": "..."} to inject context into the conversation
+    - {"decision": "block", "reason": "..."} to block the prompt
+    - empty/no output to proceed normally
+    """
+    parts: list[str] = []
+
+    # Clarifying questions.
+    questions = response.get("questions", [])
+    if questions:
+        parts.append("Betty suggests asking these clarifying questions:")
+        for q in questions:
+            parts.append(f"  - {q}")
+
+    # Predicted plan.
+    plan = response.get("predicted_plan")
+    if plan:
+        parts.append(f"\nPredicted intent: {plan}")
+
+    # Similar sessions.
+    similar = response.get("similar_sessions", [])
+    if similar:
+        relevant = [s for s in similar if s.get("goal") and s.get("relevance", 0) > 0.15]
+        if relevant:
+            parts.append("\nRelevant past sessions:")
+            for s in relevant[:3]:
+                parts.append(f"  - {s['goal']} (session {s['session_id'][:8]})")
+
+    # Applicable policies.
+    policies = response.get("applicable_policies", [])
+    if policies:
+        parts.append("\nApplicable policies:")
+        for p in policies:
+            parts.append(f"  - [{p.get('type', 'policy')}] {p.get('rule', '')}")
+
+    # Suggested context.
+    ctx = response.get("suggested_context")
+    if ctx:
+        parts.append(f"\n{ctx}")
+
+    if not parts:
+        return None
+
+    return {"additionalContext": "\n".join(parts)}
+
+
+def _format_pre_tool_use(response: dict[str, Any]) -> dict[str, Any] | None:
+    """Translate Betty's PreToolUse response to Claude Code format.
+
+    Claude Code expects:
+    {
+        "hookSpecificOutput": {
+            "permissionDecision": "allow" | "deny" | "ask",
+            "permissionDecisionReason": "...",
+        }
+    }
+    """
+    decision = response.get("decision", "allow")
+    reason = response.get("reason", "")
+
+    # Map Betty's internal decision names to Claude Code's format.
+    decision_map = {"allow": "allow", "block": "deny", "ask": "ask"}
+    permission = decision_map.get(decision, "allow")
+
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": permission,
+            "permissionDecisionReason": reason,
+        }
+    }
+
+
 def handle_hook(hook_type: str) -> None:
     """Main entry point: read stdin, call daemon, write response.
 
@@ -82,9 +170,21 @@ def handle_hook(hook_type: str) -> None:
     if not payload:
         return
 
-    response = _post_to_daemon(hook_type, payload)
+    timeout = _HOOK_TIMEOUTS.get(hook_type, DAEMON_TIMEOUT_SECS)
+    response = _post_to_daemon(hook_type, payload, timeout=timeout)
 
-    if response:
-        # Print the JSON response so Claude Code picks it up.
-        json.dump(response, sys.stdout)
+    if not response:
+        return
+
+    # Translate to Claude Code's expected format.
+    if hook_type == "UserPromptSubmit":
+        output = _format_prompt_submit(response)
+    elif hook_type == "PreToolUse":
+        output = _format_pre_tool_use(response)
+    else:
+        # PostToolUse is fire-and-forget, no output needed.
+        return
+
+    if output:
+        json.dump(output, sys.stdout)
         sys.stdout.flush()

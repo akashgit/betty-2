@@ -6,4 +6,4 @@
 <td>{{ pref.evidence_count }}</td>
 <td><button class="outline secondary" hx-delete="/api/preferences/{{ pref.id }}" hx-target="#preferences-table" hx-swap="innerHTML" hx-confirm="Delete this preference?">Delete</button></td></tr>
 {% endfor %}</tbody></table>
-{% else %}<p>No preferences learned yet. Betty will learn your coding preferences as you use Claude Code.</p>{% endif %}
+{% else %}<div class="empty-state"><p>No preferences learned yet. Betty will learn your coding preferences as you use Claude Code.</p></div>{% endif %}

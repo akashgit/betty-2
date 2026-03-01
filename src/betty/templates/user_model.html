@@ -2,7 +2,7 @@
 {% block title %}Betty &mdash; User Model{% endblock %}
 {% block content %}
 <hgroup><h1>User Model</h1><p>Your learned preferences by category</p></hgroup>
-<div id="preferences-table" hx-get="/partials/preferences" hx-trigger="load" hx-swap="innerHTML">
+<div id="preferences-table" hx-get="/partials/preferences" hx-trigger="load, every 10s" hx-swap="innerHTML">
   <p aria-busy="true">Loading preferences...</p>
 </div>
 {% endblock %}

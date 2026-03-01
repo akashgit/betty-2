@@ -1,10 +1,541 @@
-/* Betty dashboard — custom overrides on top of PicoCSS */
-:root { --pico-font-size: 16px; }
-nav a[aria-current="page"] { font-weight: bold; text-decoration: underline; text-underline-offset: 4px; }
-article h2 { font-size: 2rem; margin: 0; }
-article header { font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.7; }
-progress { width: 80px; height: 8px; vertical-align: middle; margin-right: 0.5em; }
-kbd { font-size: 0.8em; margin-right: 0.25em; }
-footer { margin-top: 3rem; padding: 1rem 0; border-top: 1px solid var(--pico-muted-border-color); text-align: center; }
+/* Betty Dashboard — Modern Dark Theme */
+
+:root {
+  /* Colors */
+  --bg-primary: #0b0d13;
+  --bg-secondary: #111318;
+  --bg-card: #16181f;
+  --bg-card-hover: #1c1e27;
+  --bg-input: #111318;
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-medium: rgba(255, 255, 255, 0.1);
+  --text-primary: #e4e6eb;
+  --text-secondary: #8b8fa3;
+  --text-muted: #5c5f73;
+  --accent: #7c5cfc;
+  --accent-hover: #9070ff;
+  --accent-glow: rgba(124, 92, 252, 0.12);
+  --gradient: linear-gradient(135deg, #7c5cfc 0%, #3b82f6 100%);
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #f87171;
+
+  /* Typography */
+  --font-sans: 'Inter', -apple-system, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Spacing */
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-xs: 6px;
+}
+
+/* PicoCSS dark overrides */
+html[data-theme="dark"] {
+  --pico-font-family: var(--font-sans);
+  --pico-font-size: 15px;
+  --pico-background-color: var(--bg-primary);
+  --pico-card-background-color: var(--bg-card);
+  --pico-card-border-color: var(--border-subtle);
+  --pico-color: var(--text-primary);
+  --pico-muted-color: var(--text-secondary);
+  --pico-primary: var(--accent);
+  --pico-primary-hover: var(--accent-hover);
+  --pico-form-element-background-color: var(--bg-input);
+  --pico-form-element-border-color: var(--border-medium);
+  --pico-muted-border-color: var(--border-subtle);
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+}
+
+/* ── Navigation ────────────────────────────────────────────────── */
+
+nav.container-fluid {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 0 2rem;
+  margin-bottom: 0;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+nav .logo strong {
+  background: var(--gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-size: 1.2rem;
+  letter-spacing: -0.02em;
+}
+
+nav .logo {
+  text-decoration: none !important;
+}
+
+nav a {
+  color: var(--text-secondary) !important;
+  text-decoration: none !important;
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-xs);
+  transition: color 0.2s ease, background 0.2s ease;
+}
+
+nav a:hover {
+  color: var(--text-primary) !important;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+nav a[aria-current="page"] {
+  color: var(--text-primary) !important;
+  background: var(--accent-glow);
+  font-weight: 600;
+}
+
+main.container { margin-top: 2rem; }
+
+/* ── Page Headers ──────────────────────────────────────────────── */
+
+hgroup { margin-bottom: 2rem; }
+
+hgroup h1 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  margin-bottom: 0.25rem;
+}
+
+hgroup p {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+/* ── Stat Cards ────────────────────────────────────────────────── */
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.stat-card:hover {
+  border-color: var(--border-medium);
+  background: var(--bg-card-hover);
+}
+
+.stat-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 0.75rem;
+  font-weight: 600;
+}
+
+.stat-value {
+  font-size: 2.25rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  background: var(--gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1;
+}
+
+/* ── Article Cards (PicoCSS override) ──────────────────────────── */
+
+article {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1rem;
+  transition: border-color 0.2s ease;
+}
+
+article:hover { border-color: var(--border-medium); }
+
+article header {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+article h2 {
+  font-size: 2rem;
+  font-weight: 700;
+  margin: 0;
+  background: var(--gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+article p { margin: 0; }
+
+/* ── Section Headings ──────────────────────────────────────────── */
+
+section {
+  margin-bottom: 2rem;
+}
+
+section h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-bottom: 0.75rem;
+  color: var(--text-primary);
+}
+
+/* ── Tables ────────────────────────────────────────────────────── */
+
+table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+thead tr { background: rgba(255, 255, 255, 0.02); }
+
+th {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  font-weight: 600;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  white-space: nowrap;
+}
+
+td {
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: rgba(255, 255, 255, 0.015); }
+
+td a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+td a:hover { text-decoration: underline; }
+
+/* ── Tags (kbd) ────────────────────────────────────────────────── */
+
+kbd {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 0.2em 0.55em;
+  background: var(--accent-glow);
+  color: var(--accent);
+  border: 1px solid rgba(124, 92, 252, 0.2);
+  border-radius: var(--radius-xs);
+  margin-right: 0.25em;
+  font-weight: 500;
+}
+
+/* ── Code ──────────────────────────────────────────────────────── */
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  padding: 0.15em 0.4em;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-xs);
+  color: var(--text-primary);
+}
+
+/* ── Progress Bars ─────────────────────────────────────────────── */
+
+progress {
+  width: 72px;
+  height: 5px;
+  border-radius: 3px;
+  vertical-align: middle;
+  margin-right: 0.5em;
+  overflow: hidden;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+progress::-webkit-progress-bar {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+}
+
+progress::-webkit-progress-value {
+  background: var(--gradient);
+  border-radius: 3px;
+}
+
+progress::-moz-progress-bar {
+  background: var(--gradient);
+  border-radius: 3px;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────── */
+
+button, [type="submit"] {
+  border-radius: var(--radius-sm) !important;
+  font-weight: 500;
+  font-size: 0.85rem;
+  padding: 0.55rem 1.25rem;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+button:not(.outline):not(.secondary),
+[type="submit"]:not(.outline):not(.secondary) {
+  background: var(--gradient) !important;
+  border: none !important;
+  color: white !important;
+}
+
+button:not(.outline):not(.secondary):hover,
+[type="submit"]:not(.outline):not(.secondary):hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(124, 92, 252, 0.3);
+}
+
+button.outline.secondary {
+  font-size: 0.72rem;
+  padding: 0.3rem 0.65rem;
+  color: var(--text-muted);
+  border-color: var(--border-medium);
+  background: transparent;
+}
+
+button.outline.secondary:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: rgba(248, 113, 113, 0.08);
+}
+
+/* ── Forms ─────────────────────────────────────────────────────── */
+
+fieldset {
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: var(--radius) !important;
+  padding: 1.5rem !important;
+  margin-bottom: 1.5rem;
+  background: var(--bg-card);
+}
+
+legend {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  padding: 0 0.5rem;
+}
+
+input, select, textarea {
+  background: var(--bg-input) !important;
+  border: 1px solid var(--border-medium) !important;
+  border-radius: var(--radius-sm) !important;
+  color: var(--text-primary) !important;
+  font-size: 0.85rem !important;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px var(--accent-glow) !important;
+  outline: none;
+}
+
+label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* ── Details / Summary ─────────────────────────────────────────── */
+
+details {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  margin-bottom: 1.5rem;
+}
+
+details summary {
+  padding: 0.75rem 1.25rem;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-weight: 500;
+  font-size: 0.875rem;
+  border-radius: var(--radius);
+}
+
+details summary:hover { color: var(--text-primary); }
+
+details[open] summary {
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+details[open] > form { padding: 1.25rem; }
+
+/* ── Status Badge (mark) ───────────────────────────────────────── */
+
+mark {
+  background: rgba(52, 211, 153, 0.12);
+  color: var(--success);
+  padding: 0.2em 0.6em;
+  border-radius: var(--radius-xs);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+/* ── Toggle Switch ─────────────────────────────────────────────── */
+
+input[type="checkbox"][role="switch"] {
+  width: 38px !important;
+  height: 20px !important;
+}
+
+/* ── Footer ────────────────────────────────────────────────────── */
+
+footer.container {
+  margin-top: 4rem;
+  padding: 1.5rem 0;
+  border-top: 1px solid var(--border-subtle);
+  text-align: center;
+}
+
+footer small {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+}
+
+/* ── HTMX ──────────────────────────────────────────────────────── */
+
 .htmx-indicator { display: none; }
-.htmx-request .htmx-indicator, .htmx-request.htmx-indicator { display: inline; }
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator { display: inline; }
+
+.htmx-settling { transition: opacity 0.2s ease; }
+
+/* ── Live Indicator ────────────────────────────────────────────── */
+
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--success);
+  background: rgba(52, 211, 153, 0.08);
+  padding: 0.2em 0.7em;
+  border-radius: 99px;
+  border: 1px solid rgba(52, 211, 153, 0.15);
+}
+
+.live-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--success);
+  border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* ── Save Feedback ─────────────────────────────────────────────── */
+
+.save-status {
+  display: inline-block;
+  margin-left: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--success);
+  font-weight: 500;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.save-status.show { opacity: 1; }
+
+/* ── Empty State ───────────────────────────────────────────────── */
+
+.empty-state {
+  text-align: center;
+  padding: 3rem 1rem;
+}
+
+.empty-state p {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  max-width: 400px;
+  margin: 0 auto;
+  line-height: 1.7;
+}
+
+/* ── Grid Override ─────────────────────────────────────────────── */
+
+.grid { gap: 1rem; }
+
+/* ── Back Link ─────────────────────────────────────────────────── */
+
+a.back-link {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: color 0.2s ease;
+}
+
+a.back-link:hover { color: var(--text-primary); }
+
+/* ── Responsive ────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  nav.container-fluid { padding: 0 1rem; }
+  .stats-grid { grid-template-columns: 1fr; }
+}

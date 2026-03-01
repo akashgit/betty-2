@@ -32,16 +32,23 @@ DB_FILE = BETTY_DIR / "betty.db"
 class LLMConfig:
     """LLM provider configuration.
 
-    The model string uses litellm conventions:
-    - "openai/gpt-4o-mini" -> OpenAI API
-    - "anthropic/claude-sonnet-4-20250514" -> Anthropic API
-    - "openrouter/openai/gpt-4o-mini" -> OpenRouter
-    - "ollama/qwen2.5:7b" -> Ollama
+    The model string encodes the provider:
+    - "claude-code/haiku" -> Claude Code CLI subprocess (default, no API key needed)
+    - "openai/gpt-4o-mini" -> OpenAI API (via litellm)
+    - "anthropic/claude-sonnet-4-20250514" -> Anthropic API (via litellm)
+    - "openrouter/openai/gpt-4o-mini" -> OpenRouter (via litellm)
+    - "ollama/qwen2.5:7b" -> Ollama (via litellm)
+    - Any model with api_base set -> OpenAI-compatible local server (direct SDK)
     """
 
-    model: str = "anthropic/claude-sonnet-4-20250514"
+    model: str = "claude-code/haiku"
     api_base: str | None = None
     api_key: str | None = None
+
+    @property
+    def is_claude_code(self) -> bool:
+        """Check if this config uses the claude-code subprocess provider."""
+        return self.model.startswith("claude-code/")
 
 
 @dataclass
@@ -226,6 +233,14 @@ def save_config(config: Config) -> None:
 def get_llm_presets() -> dict[str, dict[str, str]]:
     """Return common LLM presets for quick config."""
     return {
+        "claude-code": {
+            "model": "claude-code/haiku",
+            "description": "Claude Code CLI subprocess (default, no API key needed)",
+        },
+        "claude-code-sonnet": {
+            "model": "claude-code/sonnet",
+            "description": "Claude Code CLI with Sonnet (no API key needed)",
+        },
         "anthropic-sonnet": {
             "model": "anthropic/claude-sonnet-4-20250514",
             "description": "Anthropic Claude Sonnet (requires ANTHROPIC_API_KEY)",
@@ -233,10 +248,6 @@ def get_llm_presets() -> dict[str, dict[str, str]]:
         "anthropic-haiku": {
             "model": "anthropic/claude-haiku-4-5-20251001",
             "description": "Anthropic Claude Haiku (requires ANTHROPIC_API_KEY)",
-        },
-        "openai-gpt4o": {
-            "model": "openai/gpt-4o",
-            "description": "OpenAI GPT-4o (requires OPENAI_API_KEY)",
         },
         "openai-gpt4o-mini": {
             "model": "openai/gpt-4o-mini",

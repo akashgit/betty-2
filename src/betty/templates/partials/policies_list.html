@@ -5,4 +5,4 @@
 <td>{{ p.project_scope or "Global" }}</td>
 <td><button class="outline secondary" hx-delete="/api/policies/{{ p.id }}" hx-target="#policies-list" hx-swap="innerHTML" hx-confirm="Delete this policy?">Delete</button></td></tr>
 {% endfor %}</tbody></table>
-{% else %}<p>No policies defined yet. Add a policy above to guide Betty's behavior.</p>{% endif %}
+{% else %}<div class="empty-state"><p>No policies defined yet. Add a policy above to guide Betty's behavior.</p></div>{% endif %}

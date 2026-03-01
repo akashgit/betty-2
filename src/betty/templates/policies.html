@@ -16,7 +16,7 @@
     <button type="submit">Add Policy</button>
   </form>
 </details>
-<div id="policies-list" hx-get="/partials/policies" hx-trigger="load" hx-swap="innerHTML">
+<div id="policies-list" hx-get="/partials/policies" hx-trigger="load, every 10s" hx-swap="innerHTML">
   <p aria-busy="true">Loading policies...</p>
 </div>
 {% endblock %}

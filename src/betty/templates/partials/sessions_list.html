@@ -5,4 +5,4 @@
 <td>{{ s.project_dir or "—" }}</td><td>{{ s.goal or "—" }}</td><td>{{ s.tools_used|length }}</td>
 <td>{{ s.turn_count }}</td><td>{{ s.started_at.strftime("%Y-%m-%d %H:%M") if s.started_at else "—" }}</td></tr>
 {% endfor %}</tbody></table>
-{% else %}<p>No sessions recorded yet. Sessions will appear here after you use Claude Code with Betty hooks installed.</p>{% endif %}
+{% else %}<div class="empty-state"><p>No sessions recorded yet. Sessions will appear here after you use Claude Code with Betty hooks installed.</p></div>{% endif %}

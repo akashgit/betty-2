@@ -16,7 +16,7 @@ from betty.config import DB_FILE
 
 logger = logging.getLogger(__name__)
 
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 3
 
 SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -148,13 +148,47 @@ class UserModelDB:
             await self.db.commit()
             logger.info("Applied schema v1")
 
+        if current < 2:
+            await self.db.execute(
+                "ALTER TABLE approval_patterns ADD COLUMN auto_approve INTEGER NOT NULL DEFAULT 0"
+            )
+            await self.db.execute(
+                "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
+                (2, _now_iso()),
+            )
+            await self.db.commit()
+            logger.info("Applied schema v2: added auto_approve column")
+
+        if current < 3:
+            # Fix confidence values that were stuck due to ON CONFLICT
+            # resetting confidence to excluded.confidence instead of growing.
+            # Recalculate: confidence = 1 - 0.7 * 0.85^(evidence_count - 1)
+            async with self.db.execute(
+                "SELECT id, evidence_count FROM user_preferences WHERE evidence_count > 1"
+            ) as cursor:
+                rows = await cursor.fetchall()
+            for row in rows:
+                ec = row["evidence_count"]
+                new_conf = min(0.95, 1.0 - 0.7 * (0.85 ** (ec - 1)))
+                await self.db.execute(
+                    "UPDATE user_preferences SET confidence = ? WHERE id = ?",
+                    (new_conf, row["id"]),
+                )
+            await self.db.execute(
+                "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
+                (3, _now_iso()),
+            )
+            await self.db.commit()
+            logger.info("Applied schema v3: recalculated confidence from evidence_count (%d rows)", len(rows))
+
     async def set_preference(self, category: str, key: str, value: str, confidence: float = 0.5, project_scope: str | None = None) -> None:
         now = _now_iso()
         await self.db.execute(
             """INSERT INTO user_preferences (category, key, value, confidence, evidence_count, last_seen, project_scope)
             VALUES (?, ?, ?, ?, 1, ?, ?)
             ON CONFLICT(category, key, project_scope) DO UPDATE SET
-                value = excluded.value, confidence = excluded.confidence,
+                value = excluded.value,
+                confidence = MIN(0.95, user_preferences.confidence + (1.0 - user_preferences.confidence) * 0.15),
                 evidence_count = evidence_count + 1, last_seen = excluded.last_seen""",
             (category, key, value, confidence, now, _scope(project_scope)),
         )

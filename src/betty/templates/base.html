@@ -1,22 +1,25 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Betty{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
   <link rel="stylesheet" href="/static/style.css">
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 </head>
 <body>
-  <nav class="container">
+  <nav class="container-fluid">
     <ul>
-      <li><strong>Betty</strong></li>
+      <li><a href="/" class="logo"><strong>Betty</strong></a></li>
     </ul>
     <ul>
-      <li><a href="/" {% if request.url.path == "/" %}aria-current="page"{% endif %}>Home</a></li>
-      <li><a href="/user-model" {% if request.url.path == "/user-model" %}aria-current="page"{% endif %}>User Model</a></li>
-      <li><a href="/sessions" {% if request.url.path == "/sessions" %}aria-current="page"{% endif %}>Sessions</a></li>
+      <li><a href="/" {% if request.url.path == "/" %}aria-current="page"{% endif %}>Dashboard</a></li>
+      <li><a href="/user-model" {% if request.url.path == "/user-model" %}aria-current="page"{% endif %}>Preferences</a></li>
+      <li><a href="/sessions" {% if request.url.path.startswith("/sessions") %}aria-current="page"{% endif %}>Sessions</a></li>
       <li><a href="/policies" {% if request.url.path == "/policies" %}aria-current="page"{% endif %}>Policies</a></li>
       <li><a href="/approvals" {% if request.url.path == "/approvals" %}aria-current="page"{% endif %}>Approvals</a></li>
       <li><a href="/settings" {% if request.url.path == "/settings" %}aria-current="page"{% endif %}>Settings</a></li>
