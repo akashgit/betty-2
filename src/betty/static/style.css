@@ -78,6 +78,14 @@ nav .logo strong {
 
 nav .logo {
   text-decoration: none !important;
+  display: flex;
+  align-items: center;
+}
+
+nav .logo img {
+  height: 1.2rem;
+  width: auto;
+  margin-right: 0.4rem;
 }
 
 nav a {

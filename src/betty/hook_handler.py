@@ -29,7 +29,7 @@ from typing import Any
 DAEMON_TIMEOUT_SECS = 2
 
 _HOOK_TIMEOUTS: dict[str, float] = {
-    "UserPromptSubmit": 5,
+    "UserPromptSubmit": 40,
     "PreToolUse": 2,
     "PostToolUse": 2,
 }
@@ -86,27 +86,45 @@ def _post_to_daemon(
 def _format_prompt_submit(response: dict[str, Any]) -> dict[str, Any] | None:
     """Translate Betty's UserPromptSubmit response to Claude Code format.
 
-    Claude Code expects:
-    - {"additionalContext": "..."} to inject context into the conversation
+    Claude Code expects hookSpecificOutput with additionalContext:
+    - {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "..."}}
     - {"decision": "block", "reason": "..."} to block the prompt
     - empty/no output to proceed normally
+
+    When questions are present, the context instructs Claude to use its
+    AskUserQuestion tool so the user gets an interactive UI to respond.
     """
+    questions = response.get("questions", [])
+    plan = response.get("predicted_plan")
+    similar = response.get("similar_sessions", [])
+    policies = response.get("applicable_policies", [])
+    ctx = response.get("suggested_context")
+
+    if not questions and not plan and not similar and not policies and not ctx:
+        return None
+
     parts: list[str] = []
 
-    # Clarifying questions.
-    questions = response.get("questions", [])
+    # Instruction to use AskUserQuestion when there are questions.
     if questions:
-        parts.append("Betty suggests asking these clarifying questions:")
+        parts.append(
+            "<betty-peer-review>\n"
+            "Betty (your peer programming assistant) has reviewed this prompt "
+            "and has questions to clarify before you begin. "
+            "IMPORTANT: Before doing ANY work on this task, use the AskUserQuestion tool "
+            "to present Betty's questions to the user. "
+            "Format each question as an option with sensible choices. "
+            "Wait for the user's answers before proceeding.\n"
+        )
+        parts.append("Questions to ask:")
         for q in questions:
             parts.append(f"  - {q}")
 
     # Predicted plan.
-    plan = response.get("predicted_plan")
     if plan:
-        parts.append(f"\nPredicted intent: {plan}")
+        parts.append(f"\nBetty's predicted intent: {plan}")
 
     # Similar sessions.
-    similar = response.get("similar_sessions", [])
     if similar:
         relevant = [s for s in similar if s.get("goal") and s.get("relevance", 0) > 0.15]
         if relevant:
@@ -115,21 +133,24 @@ def _format_prompt_submit(response: dict[str, Any]) -> dict[str, Any] | None:
                 parts.append(f"  - {s['goal']} (session {s['session_id'][:8]})")
 
     # Applicable policies.
-    policies = response.get("applicable_policies", [])
     if policies:
         parts.append("\nApplicable policies:")
         for p in policies:
             parts.append(f"  - [{p.get('type', 'policy')}] {p.get('rule', '')}")
 
     # Suggested context.
-    ctx = response.get("suggested_context")
     if ctx:
         parts.append(f"\n{ctx}")
 
-    if not parts:
-        return None
+    if questions:
+        parts.append("</betty-peer-review>")
 
-    return {"additionalContext": "\n".join(parts)}
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": "\n".join(parts),
+        }
+    }
 
 
 def _format_pre_tool_use(response: dict[str, Any]) -> dict[str, Any] | None:

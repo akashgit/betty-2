@@ -6,6 +6,7 @@ to ``/hooks/{hook_type}`` without translation.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Request
@@ -38,7 +39,11 @@ async def hook_prompt_submit(
         return HookPromptSubmitResponse(proceed=True)
 
     try:
-        analysis = await intent_engine.analyze(req.prompt, req.project_dir or None)
+        # Overall timeout: must respond before hook_handler's timeout.
+        analysis = await asyncio.wait_for(
+            intent_engine.analyze(req.prompt, req.project_dir or None),
+            timeout=35.0,
+        )
 
         return HookPromptSubmitResponse(
             proceed=True,
@@ -49,6 +54,9 @@ async def hook_prompt_submit(
             predicted_plan=analysis.predicted_plan or None,
             confidence=analysis.confidence,
         )
+    except asyncio.TimeoutError:
+        logger.warning("UserPromptSubmit timed out, proceeding without analysis")
+        return HookPromptSubmitResponse(proceed=True)
     except Exception:
         logger.exception("UserPromptSubmit intent analysis failed")
         return HookPromptSubmitResponse(proceed=True)

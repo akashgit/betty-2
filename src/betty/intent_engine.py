@@ -13,6 +13,7 @@ Flow:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
@@ -232,7 +233,8 @@ class IntentEngine:
             except Exception as e:
                 logger.warning("Failed to load policies: %s", e)
 
-        # Generate questions using LLM
+        # Generate questions using LLM (with timeout to avoid blocking hooks)
+        _LLM_TIMEOUT = 30  # seconds — UserPromptSubmit can tolerate waiting for LLM
         if self._llm:
             try:
                 # Truncate context sections to keep the prompt within
@@ -251,11 +253,14 @@ class IntentEngine:
                     policies=_policies_ctx,
                 )
 
-                result = await self._llm.complete_json(
-                    prompt=llm_prompt,
-                    system="You are a peer programming assistant that helps users think through their tasks before starting.",
-                    temperature=0.2,
-                    max_tokens=1024,
+                result = await asyncio.wait_for(
+                    self._llm.complete_json(
+                        prompt=llm_prompt,
+                        system="You are a peer programming assistant that helps users think through their tasks before starting.",
+                        temperature=0.2,
+                        max_tokens=1024,
+                    ),
+                    timeout=_LLM_TIMEOUT,
                 )
 
                 # Parse questions
@@ -278,6 +283,8 @@ class IntentEngine:
                 analysis.predicted_plan = str(result.get("predicted_plan", ""))
                 analysis.confidence = float(result.get("confidence", 0.5))
 
+            except asyncio.TimeoutError:
+                logger.warning("LLM question generation timed out after %.1fs, using heuristics", _LLM_TIMEOUT)
             except Exception as e:
                 logger.warning("LLM question generation failed: %s", e)
                 # Fall through to heuristic analysis

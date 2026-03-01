@@ -69,6 +69,18 @@ class LLMService:
         self.config = config
         self.usage = TokenUsage()
 
+        # Map common Vertex AI env vars to the names litellm expects.
+        import os
+        if config.model.startswith("vertex_ai/"):
+            if not os.environ.get("VERTEXAI_PROJECT"):
+                project = os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", "")
+                if project:
+                    os.environ["VERTEXAI_PROJECT"] = project
+            if not os.environ.get("VERTEXAI_LOCATION"):
+                location = os.environ.get("CLOUD_ML_REGION", "")
+                if location:
+                    os.environ["VERTEXAI_LOCATION"] = location
+
     def _call_kwargs(self) -> dict[str, Any]:
         """Build kwargs for litellm calls."""
         kwargs: dict[str, Any] = {"model": self.config.model}
@@ -78,16 +90,19 @@ class LLMService:
             kwargs["api_key"] = self.config.api_key
         return kwargs
 
-    def _call_claude_code(
+    async def _call_claude_code(
         self,
         prompt: str,
         system: str | None = None,
         max_tokens: int = 4096,
     ) -> str:
-        """Call claude CLI in single-prompt mode.
+        """Call claude CLI in single-prompt mode (async).
 
         Prompt is piped via stdin to avoid OS ARG_MAX limits on long prompts.
+        Uses asyncio subprocess so the process can be killed on cancellation.
         """
+        import os as _os
+
         claude_model = self.config.model.split("/", 1)[1] if "/" in self.config.model else "haiku"
 
         cmd = [
@@ -103,24 +118,30 @@ class LLMService:
         # child process can authenticate.
         _STRIP_VARS = {"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"}
         env = {
-            k: v for k, v in __import__("os").environ.items()
+            k: v for k, v in _os.environ.items()
             if k not in _STRIP_VARS
         }
 
-        result = subprocess.run(
-            cmd,
-            input=prompt,
-            capture_output=True,
-            text=True,
-            timeout=60,
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
             env=env,
         )
-        if result.returncode != 0:
-            error_detail = result.stderr.strip() or result.stdout.strip()
+        try:
+            stdout, stderr = await proc.communicate(input=prompt.encode())
+        except asyncio.CancelledError:
+            proc.kill()
+            await proc.wait()
+            raise
+
+        if proc.returncode != 0:
+            error_detail = (stderr or b"").decode().strip() or (stdout or b"").decode().strip()
             raise RuntimeError(
-                error_detail or f"claude exited with code {result.returncode}"
+                error_detail or f"claude exited with code {proc.returncode}"
             )
-        return result.stdout.strip()
+        return (stdout or b"").decode().strip()
 
     async def complete(
         self,
@@ -135,10 +156,7 @@ class LLMService:
         """
         # Route 1: Claude Code subprocess
         if self.config.is_claude_code:
-            loop = asyncio.get_event_loop()
-            content = await loop.run_in_executor(
-                None, self._call_claude_code, prompt, system, max_tokens,
-            )
+            content = await self._call_claude_code(prompt, system, max_tokens)
             self.usage.call_count += 1
             return content
 
