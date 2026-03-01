@@ -24,9 +24,6 @@ BETTY_HOOK_MARKER = "# betty-hook"
 # Hook types Betty installs.
 HOOK_TYPES = ("UserPromptSubmit", "PreToolUse", "PostToolUse")
 
-# Default daemon port.
-DAEMON_PORT = 7832
-
 
 def _make_hook_command(hook_type: str) -> str:
     """Build the shell command for a single hook type.
