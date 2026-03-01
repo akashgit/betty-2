@@ -2,6 +2,9 @@
 
 Starts the FastAPI server, session watcher, Telegram bot, and scheduler
 as concurrent async tasks.  Manages PID file and graceful shutdown.
+
+Initializes shared state (database, approval model, escalation router)
+and injects it into the FastAPI app for hook endpoints to use.
 """
 
 from __future__ import annotations
@@ -96,16 +99,68 @@ def stop_daemon() -> bool:
         return False
 
 
+# -- Shared state initialization ------------------------------------------
+
+
+async def _init_shared_state() -> dict:
+    """Initialize shared components: database, approval model, escalation router."""
+    from betty.approval import ApprovalModel
+    from betty.config import load_config
+    from betty.db import UserModelDB
+    from betty.escalation import EscalationRouter
+
+    cfg = load_config()
+
+    # Database.
+    db = UserModelDB()
+    await db.connect()
+    logger.info("Database connected")
+
+    # Approval model.
+    approval_model = ApprovalModel(
+        autonomy_level=cfg.delegation.autonomy_level,
+        confidence_threshold=cfg.delegation.confidence_threshold,
+    )
+
+    # Load existing approval patterns from DB.
+    try:
+        async with db.db.execute(
+            "SELECT tool_name, action_pattern, decision, count, project_scope "
+            "FROM approval_patterns"
+        ) as cursor:
+            rows = await cursor.fetchall()
+            records = [dict(row) for row in rows]
+        approval_model.load_patterns(records)
+        logger.info("Loaded %d approval patterns", len(records))
+    except Exception:
+        logger.exception("Failed to load approval patterns")
+
+    # Escalation router.
+    escalation_router = EscalationRouter(timeout_secs=120.0)
+
+    return {
+        "db": db,
+        "approval_model": approval_model,
+        "escalation_router": escalation_router,
+        "config": cfg,
+    }
+
+
 # -- Main daemon loop -----------------------------------------------------
 
 
-async def _run_server(port: int) -> None:
-    """Run the FastAPI server via uvicorn."""
+async def _run_server(port: int, shared_state: dict) -> None:
+    """Run the FastAPI server via uvicorn with shared state injected."""
     import uvicorn
 
     from betty.server.app import create_app
 
     app = create_app()
+
+    # Inject shared state into the FastAPI app for hook endpoints.
+    for key, value in shared_state.items():
+        setattr(app.state, key, value)
+
     config = uvicorn.Config(
         app,
         host="127.0.0.1",
@@ -116,13 +171,12 @@ async def _run_server(port: int) -> None:
     await server.serve()
 
 
-async def _run_telegram_bot() -> None:
+async def _run_telegram_bot(shared_state: dict) -> None:
     """Start the Telegram bot if configured."""
     try:
-        from betty.config import load_config
-        from betty.telegram_bot import TelegramBot
+        from betty.telegram_bot import TelegramBot, make_telegram_sender
 
-        cfg = load_config()
+        cfg = shared_state["config"]
         token = cfg.escalation.telegram_token
         chat_id = cfg.escalation.telegram_chat_id
 
@@ -137,6 +191,12 @@ async def _run_telegram_bot() -> None:
         await bot.start()
         logger.info("Telegram bot started")
 
+        # Wire Telegram sender into escalation router.
+        escalation_router = shared_state.get("escalation_router")
+        if escalation_router is not None:
+            escalation_router.set_telegram_sender(make_telegram_sender(bot))
+            logger.info("Telegram sender connected to escalation router")
+
         # Keep running until cancelled.
         try:
             await asyncio.Event().wait()
@@ -148,12 +208,29 @@ async def _run_telegram_bot() -> None:
         logger.exception("Telegram bot failed")
 
 
-async def _run_scheduler() -> None:
-    """Periodic background tasks."""
+async def _run_scheduler(shared_state: dict) -> None:
+    """Periodic background tasks: preference decay."""
+    db = shared_state.get("db")
+    tick_count = 0
+
     while True:
         try:
             await asyncio.sleep(300)  # Every 5 minutes.
-            logger.debug("Scheduler tick")
+            tick_count += 1
+            logger.debug("Scheduler tick %d", tick_count)
+
+            # Every hour (12 ticks): decay stale preferences.
+            if db and tick_count % 12 == 0:
+                try:
+                    from betty.user_model import UserModel
+
+                    user_model = UserModel(db)
+                    updated = await user_model.decay_stale_preferences()
+                    if updated:
+                        logger.info("Decayed %d stale preferences", updated)
+                except Exception:
+                    logger.exception("Preference decay failed")
+
         except asyncio.CancelledError:
             break
 
@@ -169,6 +246,9 @@ async def run_daemon(port: int = DEFAULT_PORT) -> None:
     _write_pid()
     logger.info("Betty daemon starting (PID %d, port %d)", os.getpid(), port)
 
+    # Initialize shared components.
+    shared_state = await _init_shared_state()
+
     shutdown_event = asyncio.Event()
 
     def _signal_handler() -> None:
@@ -181,9 +261,9 @@ async def run_daemon(port: int = DEFAULT_PORT) -> None:
 
     # Create component tasks.
     tasks = [
-        asyncio.create_task(_run_server(port), name="server"),
-        asyncio.create_task(_run_telegram_bot(), name="telegram"),
-        asyncio.create_task(_run_scheduler(), name="scheduler"),
+        asyncio.create_task(_run_server(port, shared_state), name="server"),
+        asyncio.create_task(_run_telegram_bot(shared_state), name="telegram"),
+        asyncio.create_task(_run_scheduler(shared_state), name="scheduler"),
     ]
 
     try:
@@ -194,5 +274,12 @@ async def run_daemon(port: int = DEFAULT_PORT) -> None:
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Close database.
+        db = shared_state.get("db")
+        if db:
+            await db.close()
+            logger.info("Database closed")
+
         _remove_pid()
         logger.info("Betty daemon stopped")
