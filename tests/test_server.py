@@ -34,14 +34,14 @@ async def test_health(client):
 
 @pytest.mark.asyncio
 async def test_hook_prompt_submit(client):
-    resp = await client.post("/hooks/prompt-submit", json={
+    resp = await client.post("/hooks/UserPromptSubmit", json={
         "session_id": "test-session", "prompt": "Fix the login bug"})
     assert resp.status_code == 200
     assert resp.json()["proceed"] is True
 
 @pytest.mark.asyncio
 async def test_hook_pre_tool_use(client):
-    resp = await client.post("/hooks/pre-tool-use", json={
+    resp = await client.post("/hooks/PreToolUse", json={
         "session_id": "test-session", "tool_name": "Read",
         "tool_input": {"file_path": "/tmp/test.py"}})
     assert resp.status_code == 200
@@ -49,11 +49,50 @@ async def test_hook_pre_tool_use(client):
 
 @pytest.mark.asyncio
 async def test_hook_post_tool_use(client):
-    resp = await client.post("/hooks/post-tool-use", json={
+    resp = await client.post("/hooks/PostToolUse", json={
         "session_id": "test-session", "tool_name": "Read",
         "tool_input": {"file_path": "/tmp/test.py"}, "tool_output": "contents"})
     assert resp.status_code == 200
     assert resp.json()["acknowledged"] is True
+
+@pytest.mark.asyncio
+async def test_hook_pre_tool_use_with_approval_model(app, client):
+    """PreToolUse should consult the ApprovalModel when available."""
+    from betty.approval import ApprovalModel
+    app.state.approval_model = ApprovalModel(autonomy_level=1)
+
+    resp = await client.post("/hooks/PreToolUse", json={
+        "session_id": "s1", "tool_name": "Read",
+        "tool_input": {"file_path": "/tmp/test.py"}})
+    assert resp.status_code == 200
+    assert resp.json()["decision"] == "allow"
+
+@pytest.mark.asyncio
+async def test_hook_pre_tool_use_destructive(app, client):
+    """Destructive Bash commands should get 'ask' decision."""
+    from betty.approval import ApprovalModel
+    app.state.approval_model = ApprovalModel(autonomy_level=2)
+
+    resp = await client.post("/hooks/PreToolUse", json={
+        "session_id": "s1", "tool_name": "Bash",
+        "tool_input": {"command": "rm -rf /"}})
+    assert resp.status_code == 200
+    assert resp.json()["decision"] == "ask"
+
+@pytest.mark.asyncio
+async def test_hook_post_tool_use_records_approval(app, client):
+    """PostToolUse should record the tool use in the ApprovalModel."""
+    from betty.approval import ApprovalModel
+    model = ApprovalModel(autonomy_level=1)
+    app.state.approval_model = model
+
+    resp = await client.post("/hooks/PostToolUse", json={
+        "session_id": "s1", "tool_name": "Write",
+        "tool_input": {"file_path": "/tmp/out.py"}, "tool_output": ""})
+    assert resp.status_code == 200
+
+    prediction = model.predict("Write", {"file_path": "/tmp/out.py"})
+    assert prediction.pattern_count >= 1
 
 
 # -- Dashboard JSON API -------------------------------------------------------
