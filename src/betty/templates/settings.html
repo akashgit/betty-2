@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Betty &mdash; Settings{% endblock %}
+{% block content %}
+<hgroup><h1>Settings</h1><p>Configure Betty's behavior</p></hgroup>
+<form hx-put="/api/config" hx-swap="none">
+  <fieldset><legend>LLM Configuration</legend>
+    <label for="llm_model">Model<input type="text" id="llm_model" name="llm_model" value="{{ config.llm_model }}" placeholder="e.g., openai/gpt-4o-mini"></label>
+    <label for="llm_api_base">API Base URL (optional)<input type="text" id="llm_api_base" name="llm_api_base" value="{{ config.llm_api_base or '' }}" placeholder="e.g., http://localhost:1234/v1"></label>
+  </fieldset>
+  <fieldset><legend>Delegation</legend>
+    <label for="delegation_level">Delegation Level<select id="delegation_level" name="delegation_level">
+      <option value="0" {% if config.delegation_level == 0 %}selected{% endif %}>0 &mdash; Manual</option>
+      <option value="1" {% if config.delegation_level == 1 %}selected{% endif %}>1 &mdash; Low</option>
+      <option value="2" {% if config.delegation_level == 2 %}selected{% endif %}>2 &mdash; Medium</option>
+      <option value="3" {% if config.delegation_level == 3 %}selected{% endif %}>3 &mdash; High</option>
+    </select></label>
+    <label><input type="checkbox" id="auto_approve_read_tools" name="auto_approve_read_tools" {% if config.auto_approve_read_tools %}checked{% endif %}>Auto-approve read-only tools</label>
+    <label for="confidence_threshold">Confidence Threshold<input type="range" id="confidence_threshold" name="confidence_threshold" min="0" max="1" step="0.05" value="{{ config.confidence_threshold }}">
+    <small>{{ (config.confidence_threshold * 100)|int }}%</small></label>
+  </fieldset>
+  <fieldset><legend>Telegram</legend>
+    <p>{% if config.telegram_configured %}Status: <mark>Connected</mark>{% else %}Status: Not configured. Set <code>BETTY_TELEGRAM_TOKEN</code> and <code>BETTY_TELEGRAM_CHAT_ID</code>.{% endif %}</p>
+  </fieldset>
+  <fieldset><legend>Server</legend><p>Port: <code>{{ config.port }}</code></p></fieldset>
+  <button type="submit">Save Settings</button>
+</form>
+{% endblock %}

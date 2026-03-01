@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Betty &mdash; Policies{% endblock %}
+{% block content %}
+<hgroup><h1>Policies</h1><p>Org and project policies that guide Betty's behavior</p></hgroup>
+<details>
+  <summary role="button" class="outline">Add Policy</summary>
+  <form hx-post="/api/policies" hx-target="#policies-list" hx-swap="innerHTML" hx-on::after-request="this.reset()">
+    <label for="policy_type">Type<select id="policy_type" name="policy_type" required>
+      <option value="style">Style</option><option value="testing">Testing</option>
+      <option value="security">Security</option><option value="workflow">Workflow</option>
+      <option value="tooling">Tooling</option><option value="custom">Custom</option>
+    </select></label>
+    <label for="rule">Rule<textarea id="rule" name="rule" placeholder="Describe the policy rule..." required></textarea></label>
+    <label for="source">Source<input type="text" id="source" name="source" placeholder="e.g., team-guidelines.md"></label>
+    <label for="project_scope">Project Scope (optional)<input type="text" id="project_scope" name="project_scope" placeholder="Leave empty for global"></label>
+    <button type="submit">Add Policy</button>
+  </form>
+</details>
+<div id="policies-list" hx-get="/partials/policies" hx-trigger="load" hx-swap="innerHTML">
+  <p aria-busy="true">Loading policies...</p>
+</div>
+{% endblock %}

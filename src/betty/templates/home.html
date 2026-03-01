@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Betty &mdash; Home{% endblock %}
+{% block content %}
+<hgroup>
+  <h1>Dashboard</h1>
+  <p>Overview of your Betty peer programming agent</p>
+</hgroup>
+<div class="grid">
+  <article><header>Preferences Learned</header><h2>{{ profile.total_preferences }}</h2></article>
+  <article><header>Sessions Analyzed</header><h2>{{ profile.total_sessions }}</h2></article>
+  <article><header>Approvals Auto-piloted</header><h2>{{ profile.total_approvals }}</h2></article>
+</div>
+<section>
+  <h2>Top Preferences</h2>
+  {% if profile.preferences %}
+  <table><thead><tr><th>Category</th><th>Preference</th><th>Value</th><th>Confidence</th></tr></thead>
+  <tbody>{% for pref in profile.preferences[:5] %}
+  <tr><td>{{ pref.category }}</td><td>{{ pref.key }}</td><td>{{ pref.value }}</td>
+  <td><progress value="{{ (pref.confidence * 100)|int }}" max="100"></progress> {{ (pref.confidence * 100)|int }}%</td></tr>
+  {% endfor %}</tbody></table>
+  {% else %}<p>No preferences learned yet. Betty will learn your preferences as you use Claude Code.</p>{% endif %}
+</section>
+<section>
+  <h2>Recent Sessions</h2>
+  {% if sessions %}
+  <table><thead><tr><th>Session</th><th>Project</th><th>Goal</th><th>Date</th></tr></thead>
+  <tbody>{% for s in sessions %}
+  <tr><td><a href="/sessions/{{ s.session_id }}">{{ s.session_id[:8] }}</a></td>
+  <td>{{ s.project_dir }}</td><td>{{ s.goal or "—" }}</td>
+  <td>{{ s.started_at.strftime("%Y-%m-%d %H:%M") if s.started_at else "—" }}</td></tr>
+  {% endfor %}</tbody></table>
+  {% else %}<p>No sessions recorded yet. Sessions will appear here after you use Claude Code with Betty hooks installed.</p>{% endif %}
+</section>
+{% endblock %}

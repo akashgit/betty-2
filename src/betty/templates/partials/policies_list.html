@@ -1,0 +1,8 @@
+{% if policies %}
+<table><thead><tr><th>Type</th><th>Rule</th><th>Source</th><th>Scope</th><th>Actions</th></tr></thead>
+<tbody>{% for p in policies %}
+<tr><td><kbd>{{ p.policy_type }}</kbd></td><td>{{ p.rule }}</td><td>{{ p.source or "—" }}</td>
+<td>{{ p.project_scope or "Global" }}</td>
+<td><button class="outline secondary" hx-delete="/api/policies/{{ p.id }}" hx-target="#policies-list" hx-swap="innerHTML" hx-confirm="Delete this policy?">Delete</button></td></tr>
+{% endfor %}</tbody></table>
+{% else %}<p>No policies defined yet. Add a policy above to guide Betty's behavior.</p>{% endif %}
