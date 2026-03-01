@@ -98,9 +98,14 @@ class LLMService:
         if system:
             cmd.extend(["--system-prompt", system])
 
-        # Strip CLAUDECODE env var so claude CLI doesn't refuse to run
-        # inside an existing Claude Code session.
-        env = {k: v for k, v in __import__("os").environ.items() if k != "CLAUDECODE"}
+        # Strip env vars that trigger nested-session detection, but
+        # keep auth/routing vars (e.g. CLAUDE_CODE_USE_VERTEX) so the
+        # child process can authenticate.
+        _STRIP_VARS = {"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"}
+        env = {
+            k: v for k, v in __import__("os").environ.items()
+            if k not in _STRIP_VARS
+        }
 
         result = subprocess.run(
             cmd,
@@ -111,8 +116,9 @@ class LLMService:
             env=env,
         )
         if result.returncode != 0:
+            error_detail = result.stderr.strip() or result.stdout.strip()
             raise RuntimeError(
-                result.stderr.strip() or f"claude exited with code {result.returncode}"
+                error_detail or f"claude exited with code {result.returncode}"
             )
         return result.stdout.strip()
 

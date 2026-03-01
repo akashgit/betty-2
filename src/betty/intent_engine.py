@@ -235,12 +235,20 @@ class IntentEngine:
         # Generate questions using LLM
         if self._llm:
             try:
+                # Truncate context sections to keep the prompt within
+                # model limits (haiku context is small, and claude -p
+                # rejects overly long input).
+                _MAX_SECTION = 1500  # chars per section
+                _user_ctx = (user_context or "No preferences learned yet.")[:_MAX_SECTION]
+                _sessions_ctx = similar_sessions_text[:_MAX_SECTION]
+                _policies_ctx = policies_text[:_MAX_SECTION]
+
                 llm_prompt = _QUESTION_GENERATION_PROMPT.format(
-                    prompt=prompt,
+                    prompt=prompt[:2000],
                     project_dir=project_dir or "unknown",
-                    user_context=user_context or "No preferences learned yet.",
-                    similar_sessions=similar_sessions_text,
-                    policies=policies_text,
+                    user_context=_user_ctx,
+                    similar_sessions=_sessions_ctx,
+                    policies=_policies_ctx,
                 )
 
                 result = await self._llm.complete_json(
