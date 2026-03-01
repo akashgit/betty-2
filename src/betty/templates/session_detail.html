@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Betty &mdash; Session {{ session.session_id[:8] }}{% endblock %}
+{% block content %}
+<hgroup><h1>Session {{ session.session_id[:8] }}</h1><p>{{ session.project_dir or "Unknown project" }}</p></hgroup>
+<div class="grid">
+  <article><header>Goal</header><p>{{ session.goal or "No goal recorded" }}</p></article>
+  <article><header>Outcome</header><p>{{ session.outcome or "No outcome recorded" }}</p></article>
+  <article><header>Turns</header><h2>{{ session.turn_count }}</h2></article>
+</div>
+{% if session.tools_used %}<section><h2>Tools Used</h2><div>{% for tool in session.tools_used %}<kbd>{{ tool }}</kbd>{% endfor %}</div></section>{% endif %}
+{% if session.files_touched %}<section><h2>Files Touched</h2><ul>{% for f in session.files_touched %}<li><code>{{ f }}</code></li>{% endfor %}</ul></section>{% endif %}
+{% if session.decisions_made %}<section><h2>Decisions Made</h2><table><thead><tr><th>Decision</th><th>Details</th></tr></thead><tbody>{% for d in session.decisions_made %}<tr><td>{{ d.get("type", "—") }}</td><td>{{ d.get("description", "—") }}</td></tr>{% endfor %}</tbody></table></section>{% endif %}
+{% if session.patterns_observed %}<section><h2>Patterns Observed</h2><table><thead><tr><th>Pattern</th><th>Details</th></tr></thead><tbody>{% for p in session.patterns_observed %}<tr><td>{{ p.get("type", "—") }}</td><td>{{ p.get("description", "—") }}</td></tr>{% endfor %}</tbody></table></section>{% endif %}
+<p><a href="/sessions">&larr; Back to sessions</a></p>
+{% endblock %}

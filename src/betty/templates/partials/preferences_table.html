@@ -1,0 +1,9 @@
+{% if preferences %}
+<table><thead><tr><th>Category</th><th>Preference</th><th>Value</th><th>Confidence</th><th>Evidence</th><th>Actions</th></tr></thead>
+<tbody>{% for pref in preferences %}
+<tr><td><kbd>{{ pref.category }}</kbd></td><td>{{ pref.key }}</td><td><code>{{ pref.value }}</code></td>
+<td><progress value="{{ (pref.confidence * 100)|int }}" max="100"></progress> {{ (pref.confidence * 100)|int }}%</td>
+<td>{{ pref.evidence_count }}</td>
+<td><button class="outline secondary" hx-delete="/api/preferences/{{ pref.id }}" hx-target="#preferences-table" hx-swap="innerHTML" hx-confirm="Delete this preference?">Delete</button></td></tr>
+{% endfor %}</tbody></table>
+{% else %}<p>No preferences learned yet. Betty will learn your coding preferences as you use Claude Code.</p>{% endif %}
