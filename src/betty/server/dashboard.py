@@ -12,6 +12,8 @@ from fastapi.templating import Jinja2Templates
 
 from .models import (
     ApprovalPattern,
+    ApprovalRuleCreate,
+    ApprovalRuleSuggestion,
     ConfigResponse,
     ConfigUpdate,
     EscalationRecord,
@@ -273,6 +275,74 @@ async def api_toggle_approval(request: Request, pattern_id: int) -> HTMLResponse
             logger.exception("Failed to toggle approval %d", pattern_id)
     patterns = await _get_approvals_data(request)
     return _render(request, "partials/approvals_list.html", {"patterns": patterns})
+
+
+@router.post("/api/approvals/rules", response_model=ApprovalPattern)
+async def api_create_approval_rule(request: Request, rule: ApprovalRuleCreate) -> ApprovalPattern:
+    logger.info("create approval rule: %s %s", rule.tool_name, rule.action_pattern)
+    db = _db(request)
+    pattern_id = None
+    if db is not None:
+        try:
+            pattern_id = await db.create_approval_rule(
+                tool_name=rule.tool_name,
+                action_pattern=rule.action_pattern,
+                decision=rule.decision,
+                project_scope=rule.project_scope,
+            )
+        except Exception:
+            logger.exception("Failed to create approval rule")
+
+    # Also load into in-memory ApprovalModel if available
+    approval_model = getattr(request.app.state, "approval_model", None)
+    if approval_model is not None:
+        approval_model.add_rule(
+            tool_name=rule.tool_name,
+            action_pattern=rule.action_pattern,
+            decision=rule.decision,
+            project_scope=rule.project_scope,
+        )
+
+    return ApprovalPattern(
+        id=pattern_id or 0,
+        tool_name=rule.tool_name,
+        action_pattern=rule.action_pattern,
+        decision=rule.decision,
+        count=0,
+        auto_approve=True,
+        project_scope=rule.project_scope,
+    )
+
+
+@router.delete("/api/approvals/{pattern_id}", response_class=HTMLResponse)
+async def api_delete_approval(request: Request, pattern_id: int) -> HTMLResponse:
+    logger.info("delete approval %d", pattern_id)
+    db = _db(request)
+    if db is not None:
+        try:
+            await db.delete_approval_pattern(pattern_id)
+        except Exception:
+            logger.exception("Failed to delete approval %d", pattern_id)
+    patterns = await _get_approvals_data(request)
+    return _render(request, "partials/approvals_list.html", {"patterns": patterns})
+
+
+@router.get("/api/approvals/suggestions", response_model=list[ApprovalRuleSuggestion])
+async def api_approval_suggestions(request: Request) -> list[ApprovalRuleSuggestion]:
+    approval_model = getattr(request.app.state, "approval_model", None)
+    if approval_model is None:
+        return []
+    suggestions = approval_model.suggest_broader_rules()
+    return [ApprovalRuleSuggestion(**s) for s in suggestions]
+
+
+@router.get("/partials/approval-suggestions", response_class=HTMLResponse)
+async def partial_approval_suggestions(request: Request) -> HTMLResponse:
+    approval_model = getattr(request.app.state, "approval_model", None)
+    suggestions = []
+    if approval_model is not None:
+        suggestions = approval_model.suggest_broader_rules()
+    return _render(request, "partials/approval_suggestions.html", {"suggestions": suggestions})
 
 
 # -- Data access (backed by real DB queries when available) --------------------

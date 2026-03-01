@@ -172,6 +172,41 @@ def make_action_pattern(tool_name: str, tool_input: dict[str, Any]) -> str:
     return f"{tool_name.lower()}:unknown"
 
 
+def _generate_broader_patterns(action_pattern: str) -> list[str]:
+    """Given an exact action pattern, return candidate patterns from narrowest to broadest.
+
+    The hierarchy (checked in order, first match wins):
+    1. Exact: "edit:src/*.py"
+    2. Prefix: "bash:git-*" (for bash commands with subcommands)
+    3. Extension: "*/*.py" (any tool operating on .py files)
+    4. Tool-level: "*" (all operations for that tool)
+    """
+    candidates = [action_pattern]
+
+    if ":" in action_pattern:
+        prefix, rest = action_pattern.split(":", 1)
+
+        # Prefix broadening for bash commands: bash:git-commit -> bash:git-*
+        if prefix == "bash" and "-" in rest:
+            base = rest.split("-")[0]
+            broader_prefix = f"bash:{base}-*"
+            if broader_prefix not in candidates:
+                candidates.append(broader_prefix)
+
+        # Extension broadening: edit:src/*.py -> */*.py
+        if "." in rest:
+            ext = rest[rest.rfind("."):]
+            broader_ext = f"*/*{ext}"
+            if broader_ext not in candidates:
+                candidates.append(broader_ext)
+
+    # Tool-level wildcard (always last)
+    if action_pattern != "*":
+        candidates.append("*")
+
+    return candidates
+
+
 class ApprovalModel:
     """Learns and predicts tool approval decisions.
 
@@ -294,14 +329,25 @@ class ApprovalModel:
         # Learnable tools: check history and autonomy level
         action_pattern = make_action_pattern(tool_name, tool_input)
 
-        # Check project-scoped pattern first, then global
-        record = self._get_pattern(tool_name, action_pattern, project_scope)
-        if record is None and project_scope:
-            record = self._get_pattern(tool_name, action_pattern, None)
+        # Check candidates from narrowest to broadest (first match wins)
+        candidates = _generate_broader_patterns(action_pattern)
+        record = None
+        matched_pattern = action_pattern
+        for candidate in candidates:
+            record = self._get_pattern(tool_name, candidate, project_scope)
+            if record is None and project_scope:
+                record = self._get_pattern(tool_name, candidate, None)
+            if record is not None:
+                matched_pattern = candidate
+                break
 
         if record is not None:
             if record.decision == "accepted":
-                confidence = min(1.0, 0.5 + record.count * 0.1)
+                # User-created rules (count=0) get full confidence
+                if record.count == 0:
+                    confidence = 1.0
+                else:
+                    confidence = min(1.0, 0.5 + record.count * 0.1)
                 # Level 3 (full-auto): approve any previously accepted pattern.
                 # Level 2 (semi-auto): approve only if confidence meets threshold.
                 if self.autonomy_level >= 3 or (
@@ -310,7 +356,7 @@ class ApprovalModel:
                     return ApprovalPrediction(
                         decision=ApprovalDecision.APPROVE,
                         confidence=confidence,
-                        reason=f"Pattern '{action_pattern}' approved {record.count} time(s)",
+                        reason=f"Pattern '{matched_pattern}' approved {record.count} time(s)",
                         safety_tier=tier,
                         pattern_count=record.count,
                     )
@@ -326,7 +372,7 @@ class ApprovalModel:
                 return ApprovalPrediction(
                     decision=ApprovalDecision.ASK,
                     confidence=0.8,
-                    reason=f"Pattern '{action_pattern}' was previously rejected",
+                    reason=f"Pattern '{matched_pattern}' was previously rejected",
                     safety_tier=tier,
                     pattern_count=record.count,
                 )
@@ -377,6 +423,71 @@ class ApprovalModel:
         """Create a lookup key for a pattern."""
         scope = project_scope or "__global__"
         return f"{tool_name}|{action_pattern}|{scope}"
+
+    def add_rule(
+        self,
+        tool_name: str,
+        action_pattern: str,
+        decision: str = "accepted",
+        project_scope: str | None = None,
+    ) -> ApprovalRecord:
+        """Add an explicit user-created rule (count=0 to distinguish from learned patterns)."""
+        key = self._pattern_key(tool_name, action_pattern, project_scope)
+        self._patterns[key] = ApprovalRecord(
+            tool_name=tool_name,
+            action_pattern=action_pattern,
+            decision=decision,
+            count=0,
+            project_scope=project_scope,
+        )
+        return self._patterns[key]
+
+    def suggest_broader_rules(self, min_similar: int = 3) -> list[dict[str, Any]]:
+        """Scan existing patterns and suggest generalizations.
+
+        If min_similar or more patterns share a common broader form,
+        suggest that broader pattern as a rule.
+        """
+        # Group patterns by their broader candidates
+        broader_groups: dict[str, list[ApprovalRecord]] = {}
+        for record in self._patterns.values():
+            if record.decision != "accepted":
+                continue
+            candidates = _generate_broader_patterns(record.action_pattern)
+            for candidate in candidates:
+                if candidate == record.action_pattern:
+                    continue  # Skip exact (already exists)
+                group_key = f"{record.tool_name}|{candidate}"
+                if group_key not in broader_groups:
+                    broader_groups[group_key] = []
+                broader_groups[group_key].append(record)
+
+        suggestions = []
+        for group_key, records in broader_groups.items():
+            if len(records) < min_similar:
+                continue
+            tool_name, pattern = group_key.split("|", 1)
+            # Don't suggest if the broader rule already exists
+            if self._get_pattern(tool_name, pattern, None) is not None:
+                continue
+            # Determine granularity label
+            if pattern == "*":
+                granularity = "tool-level"
+            elif pattern.startswith("*/*"):
+                granularity = "extension"
+            elif pattern.endswith("-*"):
+                granularity = "prefix"
+            else:
+                granularity = "custom"
+            suggestions.append({
+                "tool_name": tool_name,
+                "suggested_pattern": pattern,
+                "granularity": granularity,
+                "based_on_count": len(records),
+                "examples": [r.action_pattern for r in records[:5]],
+            })
+
+        return suggestions
 
     def _get_pattern(
         self,

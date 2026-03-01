@@ -1,8 +1,11 @@
 {% if patterns %}
-<table><thead><tr><th>Tool</th><th>Pattern</th><th>Decision</th><th>Count</th><th>Auto-approve</th></tr></thead>
+<table><thead><tr><th>Tool</th><th>Pattern</th><th>Type</th><th>Decision</th><th>Count</th><th>Auto-approve</th><th>Actions</th></tr></thead>
 <tbody>{% for p in patterns %}
-<tr><td><kbd>{{ p.tool_name }}</kbd></td><td><code>{{ p.action_pattern }}</code></td><td>{{ p.decision }}</td>
+<tr><td><kbd>{{ p.tool_name }}</kbd></td><td><code>{{ p.action_pattern }}</code></td>
+<td>{% if p.action_pattern == '*' %}<mark>Tool-level</mark>{% elif p.action_pattern.startswith('*/*') %}Extension{% elif p.action_pattern.endswith('-*') %}Prefix{% else %}Exact{% endif %}</td>
+<td>{{ p.decision }}</td>
 <td>{{ p.count }}</td>
-<td><input type="checkbox" role="switch" {% if p.auto_approve %}checked{% endif %} hx-put="/api/approvals/{{ p.id }}/toggle" hx-target="#approvals-list" hx-swap="innerHTML"></td></tr>
+<td><input type="checkbox" role="switch" {% if p.auto_approve %}checked{% endif %} hx-put="/api/approvals/{{ p.id }}/toggle" hx-target="#approvals-list" hx-swap="innerHTML"></td>
+<td><button class="outline secondary" hx-delete="/api/approvals/{{ p.id }}" hx-target="#approvals-list" hx-swap="innerHTML" hx-confirm="Delete this pattern?">Delete</button></td></tr>
 {% endfor %}</tbody></table>
 {% else %}<div class="empty-state"><p>No approval patterns learned yet. Betty will learn your tool approval preferences as you use Claude Code.</p></div>{% endif %}

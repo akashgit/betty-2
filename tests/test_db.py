@@ -168,6 +168,58 @@ class TestApprovalPatterns:
         assert await db.get_approval_pattern("nope", "nope") is None
 
 
+class TestBroadApprovalRules:
+    @pytest.mark.asyncio
+    async def test_create_rule(self, db):
+        rule_id = await db.create_approval_rule("Edit", "*/*.py", "accepted")
+        assert rule_id is not None
+        pattern = await db.get_approval_pattern("Edit", "*/*.py")
+        assert pattern is not None
+        assert pattern["decision"] == "accepted"
+        assert pattern["count"] == 0  # Explicit rule, not learned
+
+    @pytest.mark.asyncio
+    async def test_create_rule_auto_approve(self, db):
+        await db.create_approval_rule("Bash", "bash:git-*", "accepted")
+        async with db.db.execute(
+            "SELECT auto_approve FROM approval_patterns WHERE action_pattern = ?",
+            ("bash:git-*",),
+        ) as cursor:
+            row = await cursor.fetchone()
+            assert row[0] == 1
+
+    @pytest.mark.asyncio
+    async def test_create_rule_upsert(self, db):
+        await db.create_approval_rule("Bash", "*", "accepted")
+        await db.create_approval_rule("Bash", "*", "rejected")
+        pattern = await db.get_approval_pattern("Bash", "*")
+        assert pattern["decision"] == "rejected"
+
+    @pytest.mark.asyncio
+    async def test_delete_pattern(self, db):
+        await db.record_approval("Read", "*", "approve")
+        pattern = await db.get_approval_pattern("Read", "*")
+        assert pattern is not None
+
+        # Get the ID
+        async with db.db.execute(
+            "SELECT id FROM approval_patterns WHERE tool_name = ? AND action_pattern = ?",
+            ("Read", "*"),
+        ) as cursor:
+            row = await cursor.fetchone()
+            pattern_id = row[0]
+
+        deleted = await db.delete_approval_pattern(pattern_id)
+        assert deleted is True
+        pattern = await db.get_approval_pattern("Read", "*")
+        assert pattern is None
+
+    @pytest.mark.asyncio
+    async def test_delete_nonexistent(self, db):
+        deleted = await db.delete_approval_pattern(9999)
+        assert deleted is False
+
+
 class TestPolicies:
     @pytest.mark.asyncio
     async def test_add_and_get(self, db):

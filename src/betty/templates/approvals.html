@@ -2,6 +2,23 @@
 {% block title %}Betty &mdash; Approval Patterns{% endblock %}
 {% block content %}
 <hgroup><h1>Approval Patterns</h1><p>Learned tool approval patterns and auto-approve rules</p></hgroup>
+<details>
+  <summary role="button" class="outline">Create Broad Rule</summary>
+  <form hx-post="/api/approvals/rules" hx-target="#approvals-list" hx-swap="innerHTML" hx-on::after-request="this.reset()">
+    <label for="tool_name">Tool Name<select id="tool_name" name="tool_name" required>
+      <option value="Edit">Edit</option><option value="Write">Write</option>
+      <option value="Bash">Bash</option><option value="NotebookEdit">NotebookEdit</option>
+    </select></label>
+    <label for="action_pattern">Action Pattern<input type="text" id="action_pattern" name="action_pattern" placeholder="e.g., bash:git-*, */*.py, *" required></label>
+    <small>Examples: <code>*</code> (all operations), <code>bash:git-*</code> (all git commands), <code>*/*.py</code> (all .py files)</small>
+    <label for="decision">Decision<select id="decision" name="decision" required>
+      <option value="accepted">Accept</option><option value="rejected">Reject</option>
+    </select></label>
+    <label for="project_scope">Project Scope (optional)<input type="text" id="project_scope" name="project_scope" placeholder="Leave empty for global"></label>
+    <button type="submit">Create Rule</button>
+  </form>
+</details>
+<div id="approval-suggestions" hx-get="/partials/approval-suggestions" hx-trigger="load, every 30s" hx-swap="innerHTML"></div>
 <div id="approvals-list" hx-get="/partials/approvals" hx-trigger="load, every 10s" hx-swap="innerHTML">
   <p aria-busy="true">Loading approval patterns...</p>
 </div>

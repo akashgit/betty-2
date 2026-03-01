@@ -368,3 +368,94 @@ async def test_api_escalations_with_db(app_with_db, client_with_db):
     data = resp.json()
     assert len(data) >= 1
     assert data[0]["reason"] == "Should I proceed?"
+
+
+# -- Broad approval rules API ------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_api_create_approval_rule(client_with_db):
+    """Create a broad approval rule via API."""
+    resp = await client_with_db.post("/api/approvals/rules", json={
+        "tool_name": "Edit", "action_pattern": "*/*.py", "decision": "accepted"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["tool_name"] == "Edit"
+    assert data["action_pattern"] == "*/*.py"
+    assert data["auto_approve"] is True
+    assert data["count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_api_create_approval_rule_persists(app_with_db, client_with_db):
+    """Created rule should appear in the approvals list."""
+    await client_with_db.post("/api/approvals/rules", json={
+        "tool_name": "Bash", "action_pattern": "bash:git-*", "decision": "accepted"})
+
+    resp = await client_with_db.get("/api/approvals")
+    assert resp.status_code == 200
+    patterns = resp.json()
+    assert any(p["action_pattern"] == "bash:git-*" for p in patterns)
+
+
+@pytest.mark.asyncio
+async def test_api_delete_approval(app_with_db, client_with_db):
+    """Delete an approval pattern via API."""
+    db = app_with_db.state.db
+    rule_id = await db.create_approval_rule("Edit", "*", "accepted")
+
+    resp = await client_with_db.delete(f"/api/approvals/{rule_id}")
+    assert resp.status_code == 200
+
+    # Verify deleted
+    resp = await client_with_db.get("/api/approvals")
+    patterns = resp.json()
+    assert not any(p["action_pattern"] == "*" and p["tool_name"] == "Edit" for p in patterns)
+
+
+@pytest.mark.asyncio
+async def test_api_approval_suggestions(app_with_db, client_with_db):
+    """Suggestions API works with an ApprovalModel."""
+    from betty.approval import ApprovalModel
+    model = ApprovalModel(autonomy_level=2)
+    app_with_db.state.approval_model = model
+
+    # Record enough similar patterns to trigger suggestion
+    model.record("Edit", {"file_path": "/proj/src/main.py"}, "accepted")
+    model.record("Edit", {"file_path": "/proj/tests/test_main.py"}, "accepted")
+    model.record("Edit", {"file_path": "/proj/lib/utils.py"}, "accepted")
+
+    resp = await client_with_db.get("/api/approvals/suggestions")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert any(s["suggested_pattern"] == "*/*.py" for s in data)
+
+
+@pytest.mark.asyncio
+async def test_api_approval_suggestions_empty(client):
+    """Suggestions API returns empty when no model."""
+    resp = await client.get("/api/approvals/suggestions")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_partial_approval_suggestions(client):
+    """Partial for approval suggestions renders."""
+    resp = await client.get("/partials/approval-suggestions")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+
+
+@pytest.mark.asyncio
+async def test_api_create_rule_loads_into_model(app_with_db, client_with_db):
+    """Creating a rule via API should also update the in-memory ApprovalModel."""
+    from betty.approval import ApprovalModel, ApprovalDecision
+    model = ApprovalModel(autonomy_level=2)
+    app_with_db.state.approval_model = model
+
+    await client_with_db.post("/api/approvals/rules", json={
+        "tool_name": "Bash", "action_pattern": "bash:git-*", "decision": "accepted"})
+
+    # The in-memory model should now approve git commands
+    result = model.predict("Bash", {"command": "git status"})
+    assert result.decision == ApprovalDecision.APPROVE

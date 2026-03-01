@@ -2,9 +2,10 @@
 {% block title %}Betty &mdash; Settings{% endblock %}
 {% block content %}
 <hgroup><h1>Settings</h1><p>Configure Betty's behavior</p></hgroup>
-<form hx-put="/api/config" hx-swap="none" hx-on::after-request="if(event.detail.successful){let s=document.getElementById('save-status');s.classList.add('show');setTimeout(()=>s.classList.remove('show'),2000)}">
+<form id="settings-form" hx-put="/api/config" hx-swap="none" hx-ext="json-enc"
+  hx-on::after-request="if(event.detail.successful){let s=document.getElementById('save-status');s.classList.add('show');setTimeout(()=>s.classList.remove('show'),2000)}">
   <fieldset><legend>LLM Configuration</legend>
-    <label for="llm_model">Model<input type="text" id="llm_model" name="llm_model" value="{{ config.llm_model }}" placeholder="e.g., openai/gpt-4o-mini"></label>
+    <label for="llm_model">Model<input type="text" id="llm_model" name="llm_model" value="{{ config.llm_model }}" placeholder="e.g., claude-code/haiku"></label>
     <label for="llm_api_base">API Base URL (optional)<input type="text" id="llm_api_base" name="llm_api_base" value="{{ config.llm_api_base or '' }}" placeholder="e.g., http://localhost:1234/v1"></label>
   </fieldset>
   <fieldset><legend>Delegation</legend>
@@ -15,7 +16,7 @@
       <option value="3" {% if config.delegation_level == 3 %}selected{% endif %}>3 &mdash; High</option>
     </select></label>
     <label><input type="checkbox" id="auto_approve_read_tools" name="auto_approve_read_tools" {% if config.auto_approve_read_tools %}checked{% endif %}>Auto-approve read-only tools</label>
-    <label for="confidence_threshold">Confidence Threshold<input type="range" id="confidence_threshold" name="confidence_threshold" min="0" max="1" step="0.05" value="{{ config.confidence_threshold }}">
+    <label for="confidence_threshold">Confidence Threshold<input type="range" id="confidence_threshold" name="confidence_threshold" min="0" max="1" step="0.05" value="{{ config.confidence_threshold }}" oninput="this.nextElementSibling.textContent=Math.round(this.value*100)+'%'">
     <small>{{ (config.confidence_threshold * 100)|int }}%</small></label>
   </fieldset>
   <fieldset><legend>Telegram</legend>
@@ -24,4 +25,14 @@
   <fieldset><legend>Server</legend><p>Port: <code>{{ config.port }}</code></p></fieldset>
   <button type="submit">Save Settings</button><span id="save-status" class="save-status">Saved!</span>
 </form>
+<script>
+// Override HTMX json-enc to properly handle checkbox and numeric types
+document.body.addEventListener('htmx:configRequest', function(e) {
+  if (e.detail.elt.id !== 'settings-form') return;
+  var cb = document.getElementById('auto_approve_read_tools');
+  e.detail.parameters['auto_approve_read_tools'] = cb.checked;
+  e.detail.parameters['delegation_level'] = parseInt(e.detail.parameters['delegation_level']);
+  e.detail.parameters['confidence_threshold'] = parseFloat(e.detail.parameters['confidence_threshold']);
+});
+</script>
 {% endblock %}

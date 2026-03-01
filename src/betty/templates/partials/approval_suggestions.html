@@ -1,0 +1,16 @@
+{% if suggestions %}
+<article>
+  <header>Suggested Broad Rules</header>
+  <p>Based on your approval history, Betty suggests these broader rules:</p>
+  {% for s in suggestions %}
+  <div style="margin-bottom: 1rem; padding: 0.5rem; border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius);">
+    <strong>{{ s.tool_name }}</strong>: <code>{{ s.suggested_pattern }}</code>
+    <small>({{ s.granularity }}, based on {{ s.based_on_count }} similar patterns)</small>
+    <br><small>Examples: {% for ex in s.examples %}{{ ex }}{% if not loop.last %}, {% endif %}{% endfor %}</small>
+    <br><button class="outline small" hx-post="/api/approvals/rules"
+      hx-vals='{"tool_name": "{{ s.tool_name }}", "action_pattern": "{{ s.suggested_pattern }}", "decision": "accepted"}'
+      hx-target="#approvals-list" hx-swap="innerHTML">Accept</button>
+  </div>
+  {% endfor %}
+</article>
+{% endif %}

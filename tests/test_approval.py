@@ -5,6 +5,7 @@ from betty.approval import (
     ApprovalDecision,
     ApprovalModel,
     SafetyTier,
+    _generate_broader_patterns,
     _is_destructive_command,
     _normalize_path_pattern,
     classify_safety_tier,
@@ -256,3 +257,177 @@ class TestGetAutoApproveRules:
 
         rules = model.get_auto_approve_rules()
         assert len(rules) == 0
+
+
+class TestGenerateBroaderPatterns:
+    def test_exact_pattern_only(self):
+        result = _generate_broader_patterns("grep:search")
+        assert result[0] == "grep:search"
+        assert result[-1] == "*"
+
+    def test_bash_git_subcommand(self):
+        result = _generate_broader_patterns("bash:git-commit")
+        assert result == ["bash:git-commit", "bash:git-*", "*"]
+
+    def test_bash_simple_command(self):
+        result = _generate_broader_patterns("bash:ls")
+        # No prefix broadening for "ls" (no hyphen)
+        assert result == ["bash:ls", "*"]
+
+    def test_edit_with_extension(self):
+        result = _generate_broader_patterns("edit:src/*.py")
+        assert result == ["edit:src/*.py", "*/*.py", "*"]
+
+    def test_write_with_extension(self):
+        result = _generate_broader_patterns("write:tests/*.py")
+        assert result == ["write:tests/*.py", "*/*.py", "*"]
+
+    def test_tool_level_wildcard(self):
+        result = _generate_broader_patterns("*")
+        assert result == ["*"]
+
+    def test_bash_git_with_extension(self):
+        # bash:git-commit has no extension, just prefix
+        result = _generate_broader_patterns("bash:git-status")
+        assert "bash:git-*" in result
+        assert "*" in result
+
+    def test_notebook_with_extension(self):
+        result = _generate_broader_patterns("notebook:notebooks/*.ipynb")
+        assert result == ["notebook:notebooks/*.ipynb", "*/*.ipynb", "*"]
+
+
+class TestBroadRuleMatching:
+    def test_tool_level_rule_matches_all(self):
+        model = ApprovalModel(autonomy_level=2)
+        model.add_rule("Edit", "*", "accepted")
+
+        result = model.predict("Edit", {"file_path": "/proj/src/main.py"})
+        assert result.decision == ApprovalDecision.APPROVE
+
+    def test_extension_rule_matches(self):
+        model = ApprovalModel(autonomy_level=2)
+        model.add_rule("Edit", "*/*.py", "accepted")
+
+        result = model.predict("Edit", {"file_path": "/proj/src/main.py"})
+        assert result.decision == ApprovalDecision.APPROVE
+
+    def test_prefix_rule_matches_git(self):
+        model = ApprovalModel(autonomy_level=2)
+        model.add_rule("Bash", "bash:git-*", "accepted")
+
+        # git-commit matches bash:git-*
+        result = model.predict("Bash", {"command": "git commit -m 'test'"})
+        assert result.decision == ApprovalDecision.APPROVE
+
+        # git-status also matches
+        result = model.predict("Bash", {"command": "git status"})
+        assert result.decision == ApprovalDecision.APPROVE
+
+    def test_destructive_overrides_broad_rule(self):
+        """Safety tier ALWAYS_ASK overrides any broad accept rule."""
+        model = ApprovalModel(autonomy_level=3)
+        model.add_rule("Bash", "*", "accepted")
+
+        result = model.predict("Bash", {"command": "rm -rf /"})
+        assert result.decision == ApprovalDecision.ASK
+        assert result.safety_tier == SafetyTier.ALWAYS_ASK
+
+    def test_exact_reject_beats_broad_accept(self):
+        """Narrower reject pattern wins over broader accept."""
+        model = ApprovalModel(autonomy_level=2)
+        # Broad: accept all bash
+        model.add_rule("Bash", "*", "accepted")
+        # Narrow: reject npm test specifically
+        model.add_rule("Bash", "bash:npm", "rejected")
+
+        result = model.predict("Bash", {"command": "npm test"})
+        assert result.decision == ApprovalDecision.ASK  # Exact reject wins
+
+        # Other commands still approved via broad rule
+        result = model.predict("Bash", {"command": "python test.py"})
+        assert result.decision == ApprovalDecision.APPROVE
+
+    def test_user_created_rule_full_confidence(self):
+        """User-created rules (count=0) should have confidence=1.0."""
+        model = ApprovalModel(autonomy_level=2, confidence_threshold=0.9)
+        model.add_rule("Edit", "*", "accepted")
+
+        result = model.predict("Edit", {"file_path": "/proj/src/main.py"})
+        assert result.decision == ApprovalDecision.APPROVE
+        assert result.confidence == 1.0
+
+    def test_no_match_falls_through(self):
+        """Broad rule for one tool doesn't affect another."""
+        model = ApprovalModel(autonomy_level=2)
+        model.add_rule("Edit", "*", "accepted")
+
+        result = model.predict("Write", {"file_path": "/proj/src/new.py"})
+        assert result.decision == ApprovalDecision.ASK
+
+    def test_extension_reject_overrides_tool_accept(self):
+        """Extension-level reject beats tool-level accept."""
+        model = ApprovalModel(autonomy_level=2)
+        model.add_rule("Edit", "*", "accepted")  # Accept all edits
+        model.add_rule("Edit", "*/*.py", "rejected")  # But reject .py edits
+
+        result = model.predict("Edit", {"file_path": "/proj/src/main.py"})
+        assert result.decision == ApprovalDecision.ASK  # Extension reject wins
+
+        result = model.predict("Edit", {"file_path": "/proj/config.toml"})
+        assert result.decision == ApprovalDecision.APPROVE  # .toml still accepted
+
+
+class TestSuggestBroaderRules:
+    def test_suggests_extension_pattern(self):
+        model = ApprovalModel()
+        # Record 3+ similar .py edit patterns
+        model.record("Edit", {"file_path": "/proj/src/main.py"}, "accepted")
+        model.record("Edit", {"file_path": "/proj/tests/test_main.py"}, "accepted")
+        model.record("Edit", {"file_path": "/proj/lib/utils.py"}, "accepted")
+
+        suggestions = model.suggest_broader_rules(min_similar=3)
+        patterns = [s["suggested_pattern"] for s in suggestions]
+        assert "*/*.py" in patterns
+
+    def test_suggests_prefix_pattern(self):
+        model = ApprovalModel()
+        model.record("Bash", {"command": "git status"}, "accepted")
+        model.record("Bash", {"command": "git diff"}, "accepted")
+        model.record("Bash", {"command": "git log"}, "accepted")
+
+        suggestions = model.suggest_broader_rules(min_similar=3)
+        patterns = [s["suggested_pattern"] for s in suggestions]
+        assert "bash:git-*" in patterns
+
+    def test_no_suggestion_below_threshold(self):
+        model = ApprovalModel()
+        model.record("Edit", {"file_path": "/proj/src/main.py"}, "accepted")
+        model.record("Edit", {"file_path": "/proj/tests/test_main.py"}, "accepted")
+
+        suggestions = model.suggest_broader_rules(min_similar=3)
+        assert len(suggestions) == 0
+
+    def test_no_duplicate_suggestion_for_existing_rule(self):
+        model = ApprovalModel()
+        model.record("Edit", {"file_path": "/proj/src/main.py"}, "accepted")
+        model.record("Edit", {"file_path": "/proj/tests/test_main.py"}, "accepted")
+        model.record("Edit", {"file_path": "/proj/lib/utils.py"}, "accepted")
+        # Already have the broader rule
+        model.add_rule("Edit", "*/*.py", "accepted")
+
+        suggestions = model.suggest_broader_rules(min_similar=3)
+        patterns = [s["suggested_pattern"] for s in suggestions]
+        assert "*/*.py" not in patterns
+
+    def test_suggestion_includes_examples(self):
+        model = ApprovalModel()
+        model.record("Bash", {"command": "git status"}, "accepted")
+        model.record("Bash", {"command": "git diff"}, "accepted")
+        model.record("Bash", {"command": "git log"}, "accepted")
+
+        suggestions = model.suggest_broader_rules(min_similar=3)
+        git_suggestion = [s for s in suggestions if s["suggested_pattern"] == "bash:git-*"]
+        assert len(git_suggestion) == 1
+        assert git_suggestion[0]["based_on_count"] == 3
+        assert len(git_suggestion[0]["examples"]) > 0

@@ -108,6 +108,19 @@ class ApprovalPattern(BaseModel):
     auto_approve: bool = False
     project_scope: str | None = None
 
+class ApprovalRuleCreate(BaseModel):
+    tool_name: str
+    action_pattern: str
+    decision: str = "accepted"
+    project_scope: str | None = None
+
+class ApprovalRuleSuggestion(BaseModel):
+    tool_name: str
+    suggested_pattern: str
+    granularity: str  # "tool-level", "extension", "prefix", "custom"
+    based_on_count: int = 0
+    examples: list[str] = Field(default_factory=list)
+
 class EscalationRecord(BaseModel):
     id: int
     session_id: str

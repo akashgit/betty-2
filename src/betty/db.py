@@ -248,6 +248,30 @@ class UserModelDB:
                 results.append(r)
             return results
 
+    async def create_approval_rule(self, tool_name: str, action_pattern: str, decision: str = "accepted", project_scope: str | None = None) -> int:
+        """Create an explicit approval rule (auto_approve=1, count=0).
+
+        Distinguishes user-created broad rules from organically learned patterns.
+        """
+        now = _now_iso()
+        cursor = await self.db.execute(
+            """INSERT INTO approval_patterns (tool_name, action_pattern, decision, count, last_seen, project_scope, auto_approve)
+            VALUES (?, ?, ?, 0, ?, ?, 1)
+            ON CONFLICT(tool_name, action_pattern, project_scope) DO UPDATE SET
+                decision = excluded.decision, auto_approve = 1, last_seen = excluded.last_seen""",
+            (tool_name, action_pattern, decision, now, _scope(project_scope)),
+        )
+        await self.db.commit()
+        return cursor.lastrowid  # type: ignore[return-value]
+
+    async def delete_approval_pattern(self, pattern_id: int) -> bool:
+        """Delete an approval pattern by ID. Returns True if a row was deleted."""
+        cursor = await self.db.execute(
+            "DELETE FROM approval_patterns WHERE id = ?", (pattern_id,)
+        )
+        await self.db.commit()
+        return cursor.rowcount > 0
+
     async def record_approval(self, tool_name: str, action_pattern: str, decision: str, project_scope: str | None = None) -> None:
         now = _now_iso()
         await self.db.execute(
